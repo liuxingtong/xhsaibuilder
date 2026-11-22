@@ -10,6 +10,7 @@ render_frames.py — 无头预览：把 eyes_core 的动画渲染成 PNG 序列 
     python3 render_frames.py                     # 生成全部演示 GIF 到 preview/
     python3 render_frames.py --only tap          # 只生成敲击演示
     python3 render_frames.py --sheet             # 额外输出一张关键时刻拼图
+    python3 render_frames.py --designs           # 输出全部眼睛设计的对照图
 """
 
 from __future__ import annotations
@@ -84,12 +85,28 @@ def script_swipe():
     ]
 
 
+def script_poke():
+    """被摸摸头：弯眼笑 → 慢慢回去。"""
+    return [
+        (0.5, []),
+        (0.05, [("poke", "shy")]),
+        (1.8, []),
+    ]
+
+
+def script_showcase():
+    """轮播全部设计，每套 1.6 秒。"""
+    return [(1.6 * len(ec.EYE_DESIGNS) + 0.2, [("showcase", None)])]
+
+
 SCRIPTS = {
     "idle": script_idle,
     "light": script_light,
     "heavy": script_heavy,
     "grid": script_grid,
     "swipe": script_swipe,
+    "poke": script_poke,
+    "showcase": script_showcase,
 }
 
 LABEL = {
@@ -98,6 +115,8 @@ LABEL = {
     "heavy": "重击 ×2",
     "grid": "9宫格滑动（左→中→右 / 上→下）",
     "swipe": "上滑彩蛋 B→H→T",
+    "poke": "被摸摸头（弯眼笑 + 害羞）",
+    "showcase": "全部眼睛设计轮播",
 }
 
 
@@ -113,6 +132,10 @@ def run_script(sm: EyeStateMachine, segments, renderer: PillowRenderer):
                 sm.press_grid(ev[1])
             elif ev[0] == "release":
                 sm.release_grid()
+            elif ev[0] == "poke":
+                sm.poke(1.0, shy=(ev[1] == "shy"))
+            elif ev[0] == "showcase":
+                sm.start_showcase(dur=1.6)
         n = max(1, int(round(dur * FPS)))
         for _ in range(n):
             sm.update(dt)
@@ -167,12 +190,44 @@ def _busy(img) -> int:
     return sum(1 for v in px if v > 40)
 
 
+def design_sheet(out: str, renderer: PillowRenderer) -> None:
+    """把每套眼睛设计渲染成一格，下面标上名字。"""
+    keys = list(ec.EYE_DESIGNS)
+    cols = 3
+    thumb = 240
+    rows = (len(keys) + cols - 1) // cols
+    sheet = Image.new("RGB", (cols * (thumb + 10) + 10,
+                              rows * (thumb + 30) + 10), (16, 16, 20))
+    d = ImageDraw.Draw(sheet)
+    try:
+        font = ImageFont.truetype("/System/Library/Fonts/PingFang.ttc", 15)
+    except Exception:
+        font = ImageFont.load_default()
+
+    for i, key in enumerate(keys):
+        sm = EyeStateMachine()
+        sm.start_showcase([key], dur=999.0)
+        sm.showcase = 0.5          # 停在这一套上，不画轮播进度
+        sm.showcase_on = False
+        for _ in range(12):
+            sm.update(1 / FPS)
+        im = renderer.render(sm.build_frame()).convert("RGB")
+        x = 10 + (i % cols) * (thumb + 10)
+        y = 10 + (i // cols) * (thumb + 30)
+        sheet.paste(im, (x, y))
+        d.text((x + 4, y + thumb + 6), key, fill=(200, 210, 235), font=font)
+    sheet.save(out)
+    print(out)
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--only", choices=list(SCRIPTS), action="append")
     ap.add_argument("--outdir", default=OUT_DIR)
     ap.add_argument("--size", type=int, default=240)
     ap.add_argument("--sheet", action="store_true")
+    ap.add_argument("--designs", action="store_true",
+                    help="额外输出全部眼睛设计的对照图")
     args = ap.parse_args(argv)
 
     os.makedirs(args.outdir, exist_ok=True)
@@ -193,6 +248,9 @@ def main(argv=None) -> int:
             frames[i].save(os.path.join(args.outdir, f"{name}_{i:03d}.png"))
         print(f"{path}  {len(frames)} frames")
         collected.append((name, frames))
+
+    if args.designs:
+        design_sheet(os.path.join(args.outdir, "designs.png"), renderer)
 
     if args.sheet:
         sheet_path = os.path.join(args.outdir, "contact_sheet.png")
