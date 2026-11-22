@@ -64,17 +64,17 @@ struct EyeDesign {
 };
 
 // classic 暖金
-static const EyeDesign D_CLASSIC = { 0x1924, 0xF7DD, 0xECC5, 0x39A3, 0x2A24, 0.58f };
+static const EyeDesign D_CLASSIC = { 0x2126, 0xFFBD, 0xECC5, 0x69C3, 0x2923, 0.58f };
 // mint 青碧
-static const EyeDesign D_MINT    = { 0x1268, 0xE7DF, 0x2D63, 0x19C8, 0x19A5, 0.60f };
+static const EyeDesign D_MINT = { 0x1925, 0xEFBE, 0x3596, 0x11C8, 0x1945, 0.60f };
 // rose 樱粉
-static const EyeDesign D_ROSE    = { 0x2124, 0xF7DB, 0xE3D9, 0x50D1, 0x2A24, 0.54f };
+static const EyeDesign D_ROSE = { 0x28E4, 0xFF9E, 0xEBF1, 0x5927, 0x3105, 0.54f };
 // frost 霜蓝
-static const EyeDesign D_FROST   = { 0x11C6, 0xEFFB, 0x4A9E, 0x194C, 0x11C4, 0.57f };
+static const EyeDesign D_FROST = { 0x1106, 0xF7BF, 0x655E, 0x196B, 0x1906, 0.57f };
 // indigo 靛紫
-static const EyeDesign D_INDIGO  = { 0x1A45, 0xF7DF, 0x668E, 0x18C6, 0x21E5, 0.63f };
+static const EyeDesign D_INDIGO = { 0x18C5, 0xF79F, 0x7B9A, 0x18A7, 0x20E6, 0.63f };
 // ember 暗金
-static const EyeDesign D_EMBER   = { 0x2104, 0xF7DE, 0xBC4A, 0x2A02, 0x2202, 0.60f };
+static const EyeDesign D_EMBER = { 0x2902, 0xFF7B, 0xC426, 0x3102, 0x20E2, 0.60f };
 
 //: 当前生效的设计（后面由当前位置 / 表情改写）
 static EyeDesign gDesign = D_CLASSIC;
