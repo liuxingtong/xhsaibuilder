@@ -148,12 +148,17 @@ struct TapCfg {
 static const TapCfg LIGHT_TAP = {0.38f, 0.26f, 0.46f, 1.10f, 0.42f};
 static const TapCfg HEAVY_TAP = {0.80f, 0.40f, 0.56f, 1.60f, 0.75f};
 
+// 前置声明：Arduino 会自动生成函数原型并插到文件最前面，
+// 那里还看不到 TapKind，所以 doTap(TapKind) 必须先有个全名可见的声明。
 enum TapKind { TAP_LIGHT, TAP_HEAVY };
 
 struct TapState {
   TapKind kind = TAP_LIGHT;
   float t = 0;
   bool active = false;
+  // 敲击过程中会被连击放大，所以必须有自己的副本 ——
+  // 不能直接读 LIGHT_TAP/HEAVY_TAP 常量（Python 的 TapEvent 也是这样）
+  float dur = 0, dip = 0, squash = 0, pop = 1, bounce = 0;
 };
 
 // ---------------------------------------------------------------------------
@@ -262,6 +267,10 @@ struct EyeState {
 
 EyeState es;
 
+// Arduino 会把函数原型插到文件开头，那里 TapKind 还没定义，
+// 所以这里显式声明一次（否则报 'TapKind' was not declared）。
+void doTap(TapKind kind);
+
 void triggerHype() {
   es.hype = 1.0f;
   es.hypeT = 0;
@@ -270,9 +279,15 @@ void triggerHype() {
 
 void doTap(TapKind kind) {
   if (kind == TAP_HEAVY || !es.tap.active) {
+    const TapCfg &c = (kind == TAP_HEAVY) ? HEAVY_TAP : LIGHT_TAP;
     es.tap.kind = kind;
     es.tap.t = 0;
     es.tap.active = true;
+    es.tap.dur = c.dur;
+    es.tap.dip = c.dip;
+    es.tap.squash = c.squash;
+    es.tap.pop = c.pop;
+    es.tap.bounce = c.bounce;
     es.tapCount++;
     es.lastKind = kind;
   } else {
