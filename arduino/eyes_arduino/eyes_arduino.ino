@@ -39,12 +39,73 @@ static const float R = SCREEN / 2.0f;   // 归一化半径
 // ---------------------------------------------------------------------------
 
 #define C_BG      0x0861   // 深蓝黑背景
-#define C_EYEWHITE 0xEF5D  // 眼白
-#define C_PUPIL   0x18E3   // 瞳孔
+#define C_PUPIL   0x18E3   // 瞳孔（所有设计共用同一个瞳孔色）
 #define C_GLINT   0xFFFF   // 高光
-#define C_LID     0x10C2   // 眼皮
 #define C_SPARK   0xFDC0   // 彩蛋星星（暖黄）
 #define C_SPARK2  0x5E5F   // 彩蛋星星（冷蓝）
+
+// ---------------------------------------------------------------------------
+// 眼睛设计：和 eyes_core.py 的 EyeDesign 一一对应
+// ---------------------------------------------------------------------------
+//
+// 颜色一律用 RGB565。Python 那边是 24bit，转换公式在 rgb565() 里。
+//
+// 分层顺序（**不能调换**，调换就不像眼睛了）：
+//   glow → eyeWhite → irisOuter → irisInner → rim → pupil
+//        → crescent(下缘月光) → glint1 → glint2
+//
+struct EyeDesign {
+  uint16_t glow;
+  uint16_t eyeWhite;
+  uint16_t irisOuter;
+  uint16_t irisInner;
+  uint16_t lid;
+  float    pupilRatio;   // 瞳孔 / 眼眶 半径比
+};
+
+// classic 暖金
+static const EyeDesign D_CLASSIC = { 0x1924, 0xF7DD, 0xECC5, 0x39A3, 0x2A24, 0.58f };
+// mint 青碧
+static const EyeDesign D_MINT    = { 0x1268, 0xE7DF, 0x2D63, 0x19C8, 0x19A5, 0.60f };
+// rose 樱粉
+static const EyeDesign D_ROSE    = { 0x2124, 0xF7DB, 0xE3D9, 0x50D1, 0x2A24, 0.54f };
+// frost 霜蓝
+static const EyeDesign D_FROST   = { 0x11C6, 0xEFFB, 0x4A9E, 0x194C, 0x11C4, 0.57f };
+// indigo 靛紫
+static const EyeDesign D_INDIGO  = { 0x1A45, 0xF7DF, 0x668E, 0x18C6, 0x21E5, 0.63f };
+// ember 暗金
+static const EyeDesign D_EMBER   = { 0x2104, 0xF7DE, 0xBC4A, 0x2A02, 0x2202, 0.60f };
+
+//: 当前生效的设计（后面由当前位置 / 表情改写）
+static EyeDesign gDesign = D_CLASSIC;
+
+static inline uint16_t rgb565(uint8_t r, uint8_t g, uint8_t b) {
+  return ((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3);
+}
+
+static inline uint16_t mix565(uint16_t a, uint16_t b, float t) {
+  t = clampf(t, 0, 1);
+  int ar = (a >> 11) & 0x1F, ag = (a >> 5) & 0x3F, ab = a & 0x1F;
+  int br = (b >> 11) & 0x1F, bg = (b >> 5) & 0x3F, bb = b & 0x1F;
+  int rr = ar + (int)((br - ar) * t);
+  int rg = ag + (int)((bg - ag) * t);
+  int rb = ab + (int)((bb - ab) * t);
+  return (uint16_t)((rr << 11) | (rg << 5) | rb);
+}
+
+// 9宫格位置 → 设计。和 Python 的 _pos_design 同规则：
+// 左右优先，左右不明显时按上下。
+void pickDesign(float colF, float rowF) {
+  if (fabsf(colF) >= 0.25f) {
+    gDesign = (colF < 0) ? D_FROST : D_ROSE;
+  } else if (rowF < -0.25f) {
+    gDesign = D_MINT;
+  } else if (rowF > 0.25f) {
+    gDesign = D_INDIGO;
+  } else {
+    gDesign = D_CLASSIC;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // 缓动
@@ -380,10 +441,14 @@ void drawEyes() {
   float centerY = baseY + dip;
 
   float eyeDx = colF * EYE_PAN_X + es.idleX * (1.0f - fabsf(colF));
-  float spread = 0.255f;
-  float eyeRx = 0.132f * stretch * (1.0f + 0.26f * hype);
-  float eyeRy = 0.186f * openness * pop * (1.0f + 0.38f * hype) * (1.0f - squashTotal);
+  float spread = 0.290f;                 // 与 Python 对齐（眼睛整体放大了）
+  float eyeRx = 0.164f * stretch * (1.0f + 0.26f * hype);
+  float eyeRy = 0.208f * openness * pop * (1.0f + 0.38f * hype);
+  eyeRy *= (1.0f - squashTotal);
   if (eyeRy < 0.012f) eyeRy = 0.012f;
+
+  // 当前该用哪套设计（位置决定）
+  pickDesign(colF, rowF);
 
   // --- 清屏 ---
   spr.fillSprite(C_BG);
@@ -398,23 +463,55 @@ void drawEyes() {
     int ecx = px(cx), ecy = px(cy);
     int erx = pr(rx), ery = pr(ry);
 
-    // 眼白
-    spr.fillEllipse(ecx - erx, ecy - ery, erx * 2, ery * 2, C_EYEWHITE);
+    // ---- 分层绘制：顺序和 Python 的 _draw_eye 完全一致 ----------------
+    // 1) 眼白外圈 glow
+    if (gDesign.glow != gDesign.eyeWhite) {
+      spr.fillEllipse(ecx - (int)(erx * 1.10f), ecy - (int)(ery * 1.10f),
+                      (int)(erx * 2.20f), (int)(ery * 2.20f), gDesign.glow);
+    }
+    // 2) 眼白本体
+    spr.fillEllipse(ecx - erx, ecy - ery, erx * 2, ery * 2, gDesign.eyeWhite);
 
-    // 瞳孔
-    float pupilScale = 0.46f * (1 + 0.18f * fabsf(colF)) * (1 + 0.22f * hype);
-    int prx = (int)(erx * pupilScale * (1 - 0.28f * squashTotal));
-    int pry = (int)(ery * pupilScale * (1 + 0.08f * squashTotal));
-    int pcx = px(cx + colF * 0.022f);
-    int pcy = px(cy + rowF * 0.016f);
-    spr.fillEllipse(pcx - prx, pcy - pry, prx * 2, pry * 2, C_PUPIL);
+    // 视线：只让虹膜+瞳孔在眼白里平移。
+    // 偏移上限 = 眼眶半径 - 虹膜半径，超了会露出背景（Python 版踩过）。
+    float gx = clampf(colF, -1.0f, 1.0f);
+    int maxSx = max(0, (int)(erx * (1.0f - 0.88f)));
+    int maxSy = max(0, (int)(ery * (1.0f - 0.88f)));
+    int gcx = ecx + (int)(gx * maxSx);
 
-    // 高光
-    int gr = max(1, prx / 3);
-    spr.fillCircle(pcx + prx / 2, pcy - pry / 2, gr, C_GLINT);
+    // 3) 虹膜外圈
+    spr.fillEllipse(gcx - (int)(erx * 0.88f), ecy - (int)(ery * 0.88f),
+                    (int)(erx * 1.76f), (int)(ery * 1.76f), gDesign.irisOuter);
+    // 4) 虹膜内圈
+    spr.fillEllipse(gcx - (int)(erx * 0.80f), ecy - (int)(ery * 0.80f),
+                    (int)(erx * 1.60f), (int)(ery * 1.60f), gDesign.irisInner);
 
-    // 上眼皮（倾斜）
-    if (fabsf(tilt) > 0.8f) drawLid(ecx, ecy, erx, ery, tilt);
+    // 5) 瞳孔尺寸
+    int prx = max(2, (int)(erx * gDesign.pupilRatio));
+    int pry = max(2, (int)(ery * gDesign.pupilRatio));
+
+    // 6) 虹膜内亮边（先画，再让瞳孔盖住中段，露出的一圈就是"月光边"）
+    uint16_t rim = mix565(gDesign.irisInner, gDesign.irisOuter, 0.62f);
+    spr.fillEllipse(gcx - (int)(prx * 1.10f), ecy - (int)(pry * 1.10f),
+                    (int)(prx * 2.20f), (int)(pry * 2.20f), rim);
+
+    // 7) 瞳孔
+    spr.fillEllipse(gcx - prx, ecy - pry, prx * 2, pry * 2, C_PUPIL);
+
+    // 8) 主高光 + 次高光
+    int gr = max(1, (int)(prx * 0.30f));
+    spr.fillCircle(gcx + (int)(prx * 0.36f), ecy - (int)(pry * 0.42f), gr, C_GLINT);
+    int gr2 = max(1, (int)(prx * 0.13f));
+    spr.fillCircle(gcx + (int)(prx * 0.08f), ecy + (int)(pry * 0.54f), gr2, C_GLINT);
+
+    // 9) 下缘月光：画下半圆的一小段弧（用扇形近似）
+    uint16_t moon = mix565(C_GLINT, gDesign.irisOuter, 0.55f);
+    spr.drawArc(gcx - (int)(prx * 1.13f), ecy - (int)(pry * 1.13f),
+                (int)(prx * 2.26f), (int)(pry * 2.26f),
+                50, 130, moon, gDesign.eyeWhite, 1);
+
+    // 10) 眼皮：压扁时盖下来
+    if (squashTotal > 0.03f) drawLid(ecx, ecy, erx, ery, squashTotal);
   }
 
   if (hype > 0) drawSparkles(hype);
@@ -433,24 +530,25 @@ void drawEyes() {
   spr.pushSprite(0, 0);
 }
 
-void drawLid(int cx, int cy, int rx, int ry, float tilt) {
-  // 与 eyes_core._draw_lid_tilt 一致：只在眼睛自身横向范围内覆盖，
-  // 下沿最多压 depth*ry（<=13%），逐列扫描填满上方。
-  if (rx <= 0 || ry <= 0) return;
-
-  float ang = tilt * (M_PI / 180.0f);
-  float tanA = tanf(ang);
-  float depth = min(0.13f, 0.07f + fabsf(tilt) / 90.0f * 0.06f);
-  int top = cy - (int)(2.0f * ry);
-
-  for (int dx = -rx; dx <= rx; dx++) {
-    float t = (dx + rx) / (2.0f * (float)rx);   // 0..1
-    float xn = (float)dx / (float)rx;           // -1..1
+/*
+ * 上眼皮：贴着眼睛上缘盖下来一条，盖住比例 = squash（0..1）。
+ *
+ * 约束（和 Python 版一致，别改）：
+ *   - 横向严格在眼睛范围内，超出会在眼睛两角糊出方块
+ *   - 最多盖到 0.98，眼睛永远剩一条缝
+ *   - 颜色取 gDesign.lid，必须比虹膜暗，不然"盖住了"看不出来
+ *
+ * TFT_eSPI 没有 fillPolygon，这里用逐列 fillRect 近似 ——
+ * 240 宽的圆屏最多 2*erx ≈ 80 列，表现完全够用。
+ */
+void drawLid(int cx, int cy, int rx, int ry, float squash) {
+  float depth = clampf(squash, 0, 0.98f);
+  for (int x = cx - rx; x <= cx + rx; x++) {
+    float xn = (float)(x - cx) / (float)rx;      // -1..1
     float arch = sqrtf(max(0.0f, 1.0f - xn * xn));
-    float yTop = -arch;                         // 单位：ry
-    float lean = tanA * (t - 0.5f) * 1.4f;
-    int bottom = cy + (int)lroundf((yTop + depth + lean) * ry);
-    if (bottom > top) spr.fillRect(cx + dx, top, 1, bottom - top, C_LID);
+    int yTop = cy - (int)(ry * arch);
+    int yBot = cy - (int)(ry * arch) + (int)(2.0f * ry * arch * depth);
+    if (yBot > yTop) spr.drawFastVLine(x, yTop, yBot - yTop, gDesign.lid);
   }
 }
 
