@@ -60,21 +60,26 @@ struct EyeDesign {
   uint16_t irisOuter;
   uint16_t irisInner;
   uint16_t lid;
-  float    pupilRatio;   // 瞳孔 / 眼眶 半径比
+  // 形态参数：这才是几套设计"长得不一样"的原因，不是色相
+  float    irisRatio;    // 虹膜 / 眼白
+  float    pupilRatio;   // 瞳孔 / **虹膜**（注意不是眼白！）
+  float    sx, sy;       // 眼型：椭圆长短轴系数
+  uint8_t  hiStyle;      // 0=classic 1=above 2=triple 3=none
 };
 
-// classic 暖金
-static const EyeDesign D_CLASSIC = { 0x2126, 0xFFBD, 0xECC5, 0x69C3, 0x2923, 0.58f };
-// mint 青碧
-static const EyeDesign D_MINT = { 0x1925, 0xEFBE, 0x3596, 0x11C8, 0x1945, 0.60f };
-// rose 樱粉
-static const EyeDesign D_ROSE = { 0x28E4, 0xFF9E, 0xEBF1, 0x5927, 0x3105, 0.54f };
-// frost 霜蓝
-static const EyeDesign D_FROST = { 0x1106, 0xF7BF, 0x655E, 0x196B, 0x1906, 0.57f };
-// indigo 靛紫
-static const EyeDesign D_INDIGO = { 0x18C5, 0xF79F, 0x7B9A, 0x18A7, 0x20E6, 0.63f };
-// ember 暗金
-static const EyeDesign D_EMBER = { 0x2902, 0xFF7B, 0xC426, 0x3102, 0x20E2, 0.60f };
+// 数值全部由 eyes_core.EYE_DESIGNS 用 rgb565() 算出来的，别手改。
+// classic 暖金    round   iris .74 pupil .50 classic
+static const EyeDesign D_CLASSIC = { 0x1905, 0xFFDD, 0xCBC3, 0x79E2, 0x2923, 0.74f, 0.50f, 1.00f, 1.00f, 0 };
+// mint 青碧       round   iris .80 pupil .40 none
+static const EyeDesign D_MINT    = { 0x1125, 0xEFDF, 0x24B3, 0x0A09, 0x1945, 0.80f, 0.40f, 1.00f, 1.00f, 3 };
+// rose 樱粉       wide    iris .70 pupil .56 triple
+static const EyeDesign D_ROSE    = { 0x28E4, 0xFFBE, 0xD30E, 0x6947, 0x3105, 0.70f, 0.56f, 1.12f, 0.90f, 2 };
+// frost 霜蓝      almond  iris .74 pupil .46 classic
+static const EyeDesign D_FROST   = { 0x10E6, 0xF7DF, 0x44BD, 0x118C, 0x1906, 0.74f, 0.46f, 1.10f, 0.86f, 0 };
+// indigo 靛紫     tall    iris .76 pupil .52 triple
+static const EyeDesign D_INDIGO  = { 0x18C5, 0xF7BF, 0x6B18, 0x18A7, 0x20E6, 0.76f, 0.52f, 0.86f, 1.16f, 2 };
+// ember 暗金      tall    iris .82 pupil .36 above
+static const EyeDesign D_EMBER   = { 0x2902, 0xFFBC, 0xB3A3, 0x5162, 0x20E2, 0.82f, 0.36f, 0.86f, 1.16f, 1 };
 
 //: 当前生效的设计（后面由当前位置 / 表情改写）
 static EyeDesign gDesign = D_CLASSIC;
@@ -479,51 +484,75 @@ void drawEyes() {
     int erx = pr(rx), ery = pr(ry);
 
     // ---- 分层绘制：顺序和 Python 的 _draw_eye 完全一致 ----------------
-    // 1) 眼白外圈 glow
-    if (gDesign.glow != gDesign.eyeWhite) {
-      spr.fillEllipse(ecx - (int)(erx * 1.10f), ecy - (int)(ery * 1.10f),
-                      (int)(erx * 2.20f), (int)(ery * 2.20f), gDesign.glow);
-    }
+    // 比例模型：眼白=整个椭圆，虹膜=眼白*irisRatio，瞳孔=**虹膜***pupilRatio。
+    // 瞳孔按虹膜算而不是按眼白算 —— 按眼白算的话虹膜只剩一圈边，
+    // 看起来是"黑盘子镶金边"，不是眼睛。
+    int srx = max(3, (int)(erx * gDesign.sx));
+    int sry = max(3, (int)(ery * gDesign.sy));
+
+    // 1) 眼白外圈
+    spr.fillEllipse(ecx - (int)(srx * 1.08f), ecy - (int)(sry * 1.08f),
+                    (int)(srx * 2.16f), (int)(sry * 2.16f), gDesign.glow);
     // 2) 眼白本体
-    spr.fillEllipse(ecx - erx, ecy - ery, erx * 2, ery * 2, gDesign.eyeWhite);
+    spr.fillEllipse(ecx - srx, ecy - sry, srx * 2, sry * 2, gDesign.eyeWhite);
 
-    // 视线：只让虹膜+瞳孔在眼白里平移。
-    // 偏移上限 = 眼眶半径 - 虹膜半径，超了会露出背景（Python 版踩过）。
+    // 视线：虹膜在眼白里平移，瞳孔比虹膜再多走 30%
+    // （GROOVE X 动画师文章：瞳孔の方が進行方向に対してより移動する）
+    int irx = max(2, (int)(srx * gDesign.irisRatio));
+    int iry = max(2, (int)(sry * gDesign.irisRatio));
     float gx = clampf(colF, -1.0f, 1.0f);
-    int maxSx = max(0, (int)(erx * (1.0f - 0.88f)));
-    int maxSy = max(0, (int)(ery * (1.0f - 0.88f)));
-    int gcx = ecx + (int)(gx * maxSx);
+    float gy = clampf(rowF, -1.0f, 1.0f);
+    int ix = ecx + (int)(gx * (srx - irx));
+    int iy = ecy + (int)(gy * (sry - iry));
 
-    // 3) 虹膜外圈
-    spr.fillEllipse(gcx - (int)(erx * 0.88f), ecy - (int)(ery * 0.88f),
-                    (int)(erx * 1.76f), (int)(ery * 1.76f), gDesign.irisOuter);
-    // 4) 虹膜内圈
-    spr.fillEllipse(gcx - (int)(erx * 0.80f), ecy - (int)(ery * 0.80f),
-                    (int)(erx * 1.60f), (int)(ery * 1.60f), gDesign.irisInner);
+    int prx = max(2, (int)(irx * gDesign.pupilRatio));
+    int pry = max(2, (int)(iry * gDesign.pupilRatio));
+    int px_ = ix + (int)(gx * (irx - prx) * 0.30f);
+    int py_ = iy + (int)(gy * (iry - pry) * 0.30f);
 
-    // 5) 瞳孔尺寸
-    int prx = max(2, (int)(erx * gDesign.pupilRatio));
-    int pry = max(2, (int)(ery * gDesign.pupilRatio));
-
-    // 6) 虹膜内亮边（先画，再让瞳孔盖住中段，露出的一圈就是"月光边"）
+    // 3) 虹膜外圈（深）
+    spr.fillEllipse(ix - irx, iy - iry, irx * 2, iry * 2, gDesign.irisOuter);
+    // 4) 虹膜内圈（浅）
+    spr.fillEllipse(ix - (int)(irx * 0.90f), iy - (int)(iry * 0.90f),
+                    (int)(irx * 1.80f), (int)(iry * 1.80f), gDesign.irisInner);
+    // 5) 虹膜内亮环
     uint16_t rim = mix565(gDesign.irisInner, gDesign.irisOuter, 0.62f);
-    spr.fillEllipse(gcx - (int)(prx * 1.10f), ecy - (int)(pry * 1.10f),
-                    (int)(prx * 2.20f), (int)(pry * 2.20f), rim);
+    spr.fillEllipse(px_ - (int)(prx * 1.18f), py_ - (int)(pry * 1.18f),
+                    (int)(prx * 2.36f), (int)(pry * 2.36f), rim);
+    // 6) 瞳孔
+    spr.fillEllipse(px_ - prx, py_ - pry, prx * 2, pry * 2, C_PUPIL);
 
-    // 7) 瞳孔
-    spr.fillEllipse(gcx - prx, ecy - pry, prx * 2, pry * 2, C_PUPIL);
+    // 7) 高光：按 hiStyle 分支，和 Python 的 _draw_highlights 对应
+    if (gDesign.hiStyle == 1) {              // above：正上方单光，显聪明
+      int r = max(1, (int)(prx * 0.34f));
+      spr.fillCircle(px_, py_ - (int)(pry * 0.52f), r, C_GLINT);
+      spr.fillCircle(px_ + (int)(prx * 0.30f), py_ + (int)(pry * 0.58f),
+                     max(1, (int)(prx * 0.10f)), C_GLINT);
+    } else if (gDesign.hiStyle == 2) {       // triple：三闪点，湿润手绘感
+      spr.fillCircle(px_ + (int)(prx * 0.30f), py_ - (int)(pry * 0.52f),
+                     max(1, (int)(prx * 0.26f)), C_GLINT);
+      spr.fillCircle(px_ + (int)(prx * 0.55f), py_ - (int)(pry * 0.20f),
+                     max(1, (int)(prx * 0.13f)), C_GLINT);
+      spr.fillCircle(px_ - (int)(prx * 0.10f), py_ + (int)(pry * 0.55f),
+                     max(1, (int)(prx * 0.11f)), C_GLINT);
+    } else if (gDesign.hiStyle == 3) {       // none：只留一点眼角反光
+      spr.fillCircle(px_ - (int)(prx * 0.42f), py_ - (int)(pry * 0.44f),
+                     max(1, (int)(prx * 0.10f)),
+                     mix565(C_GLINT, gDesign.irisInner, 0.55f));
+    } else {                                 // classic：左上大光 + 右下小光
+      spr.fillCircle(px_ + (int)(prx * 0.34f), py_ - (int)(pry * 0.44f),
+                     max(1, (int)(prx * 0.30f)), C_GLINT);
+      spr.fillCircle(px_ + (int)(prx * 0.06f), py_ + (int)(pry * 0.56f),
+                     max(1, (int)(prx * 0.13f)), C_GLINT);
+    }
 
-    // 8) 主高光 + 次高光
-    int gr = max(1, (int)(prx * 0.30f));
-    spr.fillCircle(gcx + (int)(prx * 0.36f), ecy - (int)(pry * 0.42f), gr, C_GLINT);
-    int gr2 = max(1, (int)(prx * 0.13f));
-    spr.fillCircle(gcx + (int)(prx * 0.08f), ecy + (int)(pry * 0.54f), gr2, C_GLINT);
-
-    // 9) 下缘月光：画下半圆的一小段弧（用扇形近似）
-    uint16_t moon = mix565(C_GLINT, gDesign.irisOuter, 0.55f);
-    spr.drawArc(gcx - (int)(prx * 1.13f), ecy - (int)(pry * 1.13f),
-                (int)(prx * 2.26f), (int)(pry * 2.26f),
-                50, 130, moon, gDesign.eyeWhite, 1);
+    // 8) 下缘月光（none 样式不画，靠边缘反光透气）
+    if (gDesign.hiStyle != 3) {
+      uint16_t moon = mix565(C_GLINT, gDesign.irisOuter, 0.55f);
+      spr.drawArc(px_ - (int)(prx * 1.16f), py_ - (int)(pry * 1.16f),
+                  (int)(prx * 2.32f), (int)(pry * 2.32f),
+                  50, 130, moon, gDesign.eyeWhite, 1);
+    }
 
     // 10) 眼皮：压扁时盖下来
     if (squashTotal > 0.03f) drawLid(ecx, ecy, erx, ery, squashTotal);
