@@ -1006,6 +1006,14 @@ class EyeStateMachine:
         design = self.current_design()
         inner_rot = self.clock * (1.5 + 3.0 * mood)   # 虹膜跑马灯 / 指针角度
 
+        # 星星眼的强度包络：0.25s 冲满，之后按 hype 进度回落
+        hype_env = 0.0
+        if hype > 0.0:
+            prog = clamp(self.hype_t / self.hype_len, 0.0, 1.0)
+            rise = clamp(self.hype_t / 0.25, 0.0, 1.0)
+            fall = clamp((prog - 0.45) / 0.55, 0.0, 1.0)
+            hype_env = rise * (1.0 - ease_in_out_sine(fall))
+
         # ---- 眼睛本体 ----------------------------------------------------
         eye_boxes = []
         for side in (-1, 1):
@@ -1016,14 +1024,28 @@ class EyeStateMachine:
             size_k = 1.0 + (0.12 * near - 0.07 * (1 - near)) * abs(col_f)
             rx_, ry_ = eye_rx * size_k, eye_ry * size_k
 
+            # 上滑彩蛋：眼睛变成**星星眼**。
+            # 和共振变心形用同一套插值机制（形状库），只是目标形状不同。
+            # 强度分两段：先冲到 1（0.25s），尾段再慢慢化回普通眼睛。
+            if hype_env > 0.05:
+                # 星星眼要比普通眼睛**大一圈**，才有"炸开"的感觉
+                grow = 1.22 + 0.30 * clamp(hype_env, 0, 1)
+                shape_pts = blend_shape("round", "star", clamp(hype_env, 0, 1),
+                                        cx, cy, rx_ * grow, ry_ * grow)
+                # 星星用固定的亮金 —— 不要从 design.iris_outer 混，
+                # 因为那会随 9 宫格位置变，星星眼的颜色就会跟着跳（看起来在闪）
+                star_col = mix_rgb((255, 210, 90), (255, 246, 190),
+                                   clamp(hype_env, 0, 1) * 0.6)
+                dl.add(Polygon(shape_pts, mood=rgb_key(star_col)))
+                eye_boxes.append((cx, cy, rx_, ry_))
+                continue
+
             # 共振：眼睛直接变成心形（最醒目、最不会看错的表情）
             if bond_env > 0.03:
                 k = clamp(bond_env, 0.0, 1.0)
-                circle = ellipse_polygon(cx, cy, rx_ * 1.06, ry_ * 1.06, 40)
-                heart = _heart_poly(cx, cy + ry_ * 0.02, rx_ * 0.98, ry_ * 1.02, 40)
-                blended = [(lerp(circle[i][0], heart[i][0], k),
-                            lerp(circle[i][1], heart[i][1], k))
-                           for i in range(40)]
+                blended = blend_shape("round", "heart", k,
+                                      cx, cy + ry_ * 0.02,
+                                      rx_ * 1.00, ry_ * 1.02)
                 dl.add(Polygon(blended, mood=rgb_key(mix_rgb(design.tint, _HEART, k))))
                 eye_boxes.append((cx, cy, rx_, ry_))
                 continue
@@ -1307,24 +1329,198 @@ def _blend_style(col_f: float, row_f: float) -> dict:
     return out
 
 
-def _heart_poly(cx: float, cy: float, rx: float, ry: float,
-                n: int = 40) -> List[Tuple[float, float]]:
-    """
-    心形轮廓（共振时眼睛变成心）。
+# ---------------------------------------------------------------------------
+# 形状库
+# ---------------------------------------------------------------------------
+#
+# 每一套设计只决定**颜色**，形状单独拿出来，两者正交。
+# 所有形状都返回同样点数的极坐标轮廓 (角度 t, 半径比例 s)，这样才能两两插值：
+#
+#     轮廓 = [ (t_i, s_i) ... ]    t_i 是角度，s_i 是"半径是标准椭圆的几倍"
+#
+# 插值时只对 s 做线性插值，角度固定 —— 保证几何上连续，不会出现
+# "心形绕一圈"那种自交。
+#
+# Arduino 版照抄这套参数即可：全部是 sin/cos 的组合，没有查表。
 
-    用经典极坐标心形曲线：
-        x = 16 sin^3(t)
-        y = -(13 cos t - 5 cos2t - 2 cos3t - cos4t)
-    归一化到约 ±1，再乘 rx/ry。y 轴向下，所以整体不翻转。
+#: 轮廓采样点数。40 够圆，Arduino 上也不至于太慢。
+SHAPE_N = 64
+
+#: 形状名字（也是轮播 / 调试用的 key）
+SHAPES = ("round", "star", "heart", "cat", "squint", "wave", "sparkle")
+
+
+def _star_radius(t: float, points: int = 5, inner: float = 0.42) -> float:
+    """
+    五角星。
+
+    屏幕坐标里 t=0 指右、t=pi/2 指**下**。
+    想让一个尖朝上，锥角要落在 t = -pi/2。
+    """
+    # 从"正上方"算起的角度
+    a = t + math.pi / 2.0
+    k = abs(math.cos(points * 0.5 * a)) ** 1.9   # 指数越大尖越尖
+    return inner + (1.0 - inner) * k
+
+
+def heart_points(cx: float, cy: float, rx: float, ry: float,
+                 n: int = SHAPE_N) -> List[Tuple[float, float]]:
+    """
+    心形轮廓，直接用参数方程采样（不做极坐标转换）。
+
+    极坐标表达心形做不出上方那个凹口 —— 那个凹口要求半径在很短的角度
+    区间里突变，平滑函数做不到，硬做出来就是一个圆团（试过两版）。
+
+    参数式（经典心形）：
+        x = 16 sin^3(u)
+        y = -(13 cos u - 5 cos 2u - 2 cos 3u - cos 4u)
+    y 取负是因为屏幕坐标 y 向下，而心形公式里 y 向上。
+    自然范围约 x∈[-16,16]、y∈[-17,12]，统一缩放到 ±1。
     """
     pts: List[Tuple[float, float]] = []
     for i in range(n):
-        t = 2.0 * math.pi * i / n
-        hx = 16.0 * math.sin(t) ** 3
-        hy = -(13.0 * math.cos(t) - 5.0 * math.cos(2 * t)
-               - 2.0 * math.cos(3 * t) - math.cos(4 * t))
-        # 心形曲线的自然范围约 ±17 / ±17（上下略不对称），统一缩放到 ±1
+        u = 2.0 * math.pi * i / n
+        hx = 16.0 * math.sin(u) ** 3
+        hy = -(13.0 * math.cos(u) - 5.0 * math.cos(2 * u)
+               - 2.0 * math.cos(3 * u) - math.cos(4 * u))
         pts.append((cx + rx * (hx / 17.0), cy + ry * (hy / 17.0)))
+    return pts
+
+
+def _cat_radius(t: float) -> float:
+    """
+    猫眼/杏仁：**在 shape_polygon 里靠 y 方向压扁实现**，半径恒为 1。
+
+    之前用"左右半径大、上下半径小"来做，结果上下收缩到 0.34 时
+    左右两端断开成两半 —— 半径法不能把某个方向压到太小。
+    压 y 更直白，而且永远单连通。
+    """
+    return 1.0
+
+
+def _wave_radius(t: float) -> float:
+    """波浪边，6 个起伏。"""
+    return 1.0 + 0.075 * math.sin(6.0 * t)
+
+
+def _sparkle_radius(t: float) -> float:
+    """
+    四角闪光：四个方向拉出长尖，对角线收进去。
+
+    用 cos(2t) 做周期，四个尖分别落在 0 / 90 / 180 / 270 度。
+    """
+    k = abs(math.cos(2.0 * t))
+    # 指数越大，四个尖越细长、对角越凹 —— 看起来才是"闪"，不是加号
+    return 0.12 + 0.88 * (k ** 4.5)
+
+
+def _squint_radius(t: float) -> float:
+    """
+    眯眼：整体压扁成一条缝，但**保持单连通**（不能裂成两半）。
+
+    之前用 0.30 + 0.70*|sin| 会在左右两端缩到 0.30 而中间不缩，
+    视觉上断成两块。这里改成"上下压扁"：让 y 方向整体乘一个小系数，
+    半径始终 > 0。
+    """
+    return 1.0
+
+
+def shape_profile(name: str) -> List[Tuple[float, float]]:
+    """返回某个形状的极坐标轮廓 [(角度, 半径比例)]。"""
+    out: List[Tuple[float, float]] = []
+    for i in range(SHAPE_N):
+        t = 2.0 * math.pi * i / SHAPE_N
+        if name == "squint":
+            # 眯眼靠 y 压扁实现，半径保持 1（见 shape_polygon 里的 ys）
+            s = 1.0
+        elif name == "star":
+            s = _star_radius(t)
+        elif name == "cat":
+            s = _cat_radius(t)
+        elif name == "wave":
+            s = _wave_radius(t)
+        elif name == "sparkle":
+            s = _sparkle_radius(t)
+        else:                      # round
+            s = 1.0
+        out.append((t, s))
+    return out
+
+
+#: 心形等需要查表的形状的缓存
+SHAPE_LUT: Dict[str, object] = {}
+
+#: 预计算，避免每帧重算三角函数（240 帧 × 2 眼 × 40 点 = 每秒 19k 次，没必要）
+SHAPE_CACHE: Dict[str, List[Tuple[float, float]]] = {}
+
+
+def _profile(name: str) -> List[Tuple[float, float]]:
+    if name not in SHAPE_CACHE:
+        SHAPE_CACHE[name] = shape_profile(name)
+    return SHAPE_CACHE[name]
+
+
+def shape_polygon(name: str, cx: float, cy: float, rx: float, ry: float,
+                  squash_top: float = 0.0) -> List[Tuple[float, float]]:
+    """把形状轮廓变成一个可以直接画的多边形。
+
+    squash_top > 0 时把上半部压扁（眨眼用），和椭圆版的 squash_bottom 一个意思。
+    """
+    if name == "heart":
+        return heart_points(cx, cy, rx, ry)
+    ys = {"squint": 0.30, "cat": 0.52}.get(name, 1.0)
+    pts: List[Tuple[float, float]] = []
+    for t, s in _profile(name):
+        x = cx + rx * s * math.cos(t)
+        y = cy + ry * s * ys * math.sin(t)
+        if squash_top > 0.0 and y < cy:
+            y = cy + (y - cy) * (1.0 - squash_top)
+        pts.append((x, y))
+    return pts
+
+
+def blend_shape(a: str, b: str, t: float, cx: float, cy: float,
+                rx: float, ry: float) -> List[Tuple[float, float]]:
+    """
+    两个形状之间插值。t=0 完全是 a，t=1 完全是 b。
+
+    只插半径、不插角度 —— 角度对所有形状都一样，所以永远不会自交。
+    """
+    t = clamp(t, 0.0, 1.0)
+    # 心形是参数式采样的，点数和极坐标路径一致（都是 SHAPE_N），
+    # 所以可以直接把它当成一组点参与线性插值。
+    if a == "heart" or b == "heart":
+        ha = heart_points(cx, cy, rx, ry)
+        hb = heart_points(cx, cy, rx, ry)
+        pa2 = _profile(a) if a != "heart" else None
+        pb2 = _profile(b) if b != "heart" else None
+        out = []
+        for i in range(SHAPE_N):
+            if a == "heart":
+                ax, ay = ha[i]
+            else:
+                ang, s = pa2[i]
+                ax, ay = cx + rx * s * math.cos(ang), cy + ry * s * math.sin(ang)
+            if b == "heart":
+                bx, by = hb[i]
+            else:
+                ang, s = pb2[i]
+                bx, by = cx + rx * s * math.cos(ang), cy + ry * s * math.sin(ang)
+            out.append((ax + (bx - ax) * t, ay + (by - ay) * t))
+        return out
+
+    pa, pb = _profile(a), _profile(b)
+    _ys = {"squint": 0.30, "cat": 0.52}
+    ya = _ys.get(a, 1.0)
+    yb = _ys.get(b, 1.0)
+    ys = ya + (yb - ya) * t
+    pts: List[Tuple[float, float]] = []
+    for i in range(SHAPE_N):
+        ang, sa = pa[i]
+        _, sb = pb[i]
+        s = sa + (sb - sa) * t
+        pts.append((cx + rx * s * math.cos(ang),
+                    cy + ry * s * ys * math.sin(ang)))
     return pts
 
 
@@ -1351,20 +1547,32 @@ def _draw_bond_ring(dl: DrawList, amount: float, clock: float,
 
 
 def _draw_sparkles(dl: DrawList, hype: float, clock: float, seed: int) -> None:
-    """彩蛋期间的爆发光芒 / 小星星。"""
+    """
+    彩蛋期间的爆发星光。
+
+    分两拨：
+      · 近处一圈大的（慢慢转），负责"热闹"
+      · 远处一圈小的（转得快），负责"闪"
+    数量从 14 提到 30，尺寸也放大 —— 之前太稀疏，几乎看不出来。
+    """
     rng = random.Random(seed)
-    n = 14
-    for i in range(n):
+    for i in range(30):
+        big = i < 18
         a0 = rng.uniform(0, math.tau)
-        r0 = rng.uniform(0.40, 0.78)
-        speed = rng.uniform(0.55, 1.4)
+        # 起始半径抬到眼睛外面：星星眼本身已经很大（~0.29 半径），
+        # 星火压在上面会糊成一片，看不出是"周围的星光"
+        r0 = rng.uniform(0.30, 0.46) if big else rng.uniform(0.46, 0.54)
+        speed = rng.uniform(0.35, 0.8) if big else rng.uniform(0.9, 1.8)
         phase = (clock * speed + rng.uniform(0, 1)) % 1.0
-        rr = 0.30 + r0 * phase
+        rr = 0.58 + r0 * phase
         cx = math.cos(a0) * rr
-        cy = math.sin(a0) * rr
-        size = 0.032 * (1.0 - phase) * hype
-        if size > 0.002:
-            dl.add(("spark", cx, cy, size, a0, phase))
+        cy = math.sin(a0) * rr * 0.96
+        base = 0.070 if big else 0.036
+        # 淡入淡出：两端小、中间大，不会突然出现/消失
+        env = math.sin(math.pi * phase) ** 0.6
+        size = base * env * hype
+        if size > 0.002 and rr < 0.97:
+            dl.add(("spark", cx, cy, size, a0 + clock * speed, phase))
 
 
 # ---------------------------------------------------------------------------
