@@ -48,6 +48,11 @@ def state_to_owl(sm: EyeStateMachine) -> OwlParams:
     p.head_tilt = col_f * 9.0
     p.head_y = row_f * 0.10 + dip * 0.85
 
+    # 待机微动：让静止时也有细微的姿态变化（调研：Moflin 无屏却成立，
+    # 证明"活着"可以由非大动作承担）
+    p.idle_x = sm.idle_look_x * 0.55
+    p.idle_y = sm.idle_look_y * 0.75
+
     # ---- 眼睑 ----
     # squash 是"压扁"，映射成上眼睑下压；blink 直接闭合
     lid = clamp(squash * 1.55 + blink * 1.25, 0.0, 1.0)
