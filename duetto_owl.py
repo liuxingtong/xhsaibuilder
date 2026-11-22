@@ -102,7 +102,8 @@ def disc_shape(cx: float, cy: float, rx: float, ry: float,
 
 
 def eye_shape(cx: float, cy: float, rx: float, ry: float, open_k: float,
-              smile: float = 0.0, angry: float = 0.0, n: int = 22):
+              smile: float = 0.0, angry: float = 0.0, heart: float = 0.0,
+              n: int = 22):
     """
     眼睛轮廓（实心块，无眼白无瞳圈）。
 
@@ -116,6 +117,10 @@ def eye_shape(cx: float, cy: float, rx: float, ry: float, open_k: float,
     k = clamp(open_k, 0.0, 1.0)
     if k <= 0.05:
         return []
+
+    # 心形：在普通轮廓上做径向形变，heart=0 时完全不影响
+    if heart > 0.02:
+        return _heart_shape(cx, cy, rx, ry, heart, n)
 
     # 上缘的基准高度（相对 ry）：k=1 → -1（满圆），k=0 → +0.6（几乎闭合）
     y_top = -1.0 + (1.0 - k) * 1.60
@@ -146,6 +151,29 @@ def eye_shape(cx: float, cy: float, rx: float, ry: float, open_k: float,
     return pts
 
 
+def _heart_shape(cx: float, cy: float, rx: float, ry: float,
+                 heart: float, n: int = 36):
+    """
+    心形轮廓。用极坐标心形曲线采样，再和圆做插值，
+    这样 heart 从 0 到 1 是平滑变形，不会跳。
+    """
+    pts = []
+    for i in range(n):
+        t = 2.0 * math.pi * i / n - math.pi / 2.0   # 从正上方开始
+        # 心形极坐标：r = 1 - sin(t) 的经典变形
+        hx = 16 * math.sin(t) ** 3
+        hy = -(13 * math.cos(t) - 5 * math.cos(2 * t)
+               - 2 * math.cos(3 * t) - math.cos(4 * t))
+        hl = math.hypot(hx, hy) or 1e-6
+        hxn, hyn = hx / 17.0, hy / 17.0             # 归一化到约 -1..1
+        # 圆
+        cxn, cyn = math.cos(t), math.sin(t)
+        xn = cxn + (hxn - cxn) * heart
+        yn = cyn + (hyn - cyn) * heart
+        pts.append((cx + rx * xn, cy + ry * yn))
+    return pts
+
+
 def taper_stroke(p0, p1, w0, w1, n: int = 6) -> List[Tuple[float, float]]:
     """把一条线做成两端粗细不同的"羽状"多边形。眉羽用它。"""
     dx, dy = p1[0] - p0[0], p1[1] - p0[1]
@@ -170,6 +198,10 @@ class OwlParams:
     head_x: float = 0.0       # 水平平移
     head_y: float = 0.0       # 垂直平移
     head_tilt: float = 0.0    # 侧头角度（度）
+
+    # 待机微动（叠加在 head_* 上，让静止时也"活着"）
+    idle_x: float = 0.0
+    idle_y: float = 0.0
 
     # 眼睛
     eye_rx: float = 0.185
@@ -200,7 +232,8 @@ class OwlParams:
 
 def build_owl_frame(p: OwlParams) -> DrawList:
     dl = DrawList()
-    hx, hy = p.head_x, p.head_y
+    hx = p.head_x + p.idle_x
+    hy = p.head_y + p.idle_y
     tilt = math.radians(p.head_tilt)
 
     def place(x: float, y: float) -> Tuple[float, float]:
@@ -223,13 +256,20 @@ def build_owl_frame(p: OwlParams) -> DrawList:
     # 形状由一个"可插值的轮廓"描述 —— 上缘表达情绪，下缘表达注视。
     # 猫头鹰的眼睛不能转动，所以"看向哪里"完全交给 head_x / head_tilt（转头），
     # 瞳孔只做极小幅度的缩放，不做位移。
-    eye_dx = 0.255 * p.eye_gap   # 中心距 = 2*0.255*0.9 ≈ 0.46；眼宽 0.37 → 间隙约 0.9 倍眼宽
+    # 彩蛋时两眼微微靠拢（"共鸣"的视觉隐喻）
+    eye_dx = 0.255 * p.eye_gap * (1.0 - 0.14 * clamp(p.hype, 0.0, 1.0))
     for side in (-1, 1):
         ex, ey = place(side * eye_dx, 0.0)
         open_k = clamp(p.eye_open, 0.0, 1.6)
 
+        # 彩蛋后期：眼睛短暂变成心形（共鸣的庆祝）
+        heart = 0.0
+        if p.hype > 0.45:
+            # 用时间做一次脉冲，不要一直心形
+            ph = (p.clock * 1.6) % 1.0
+            heart = max(0.0, math.sin(math.pi * min(1.0, ph * 2.2))) * (p.hype - 0.45) / 0.55
         outline = eye_shape(ex, ey, p.eye_rx, p.eye_ry, open_k,
-                            smile=p.smile, angry=p.angry)
+                            smile=p.smile, angry=p.angry, heart=heart)
         if outline:
             dl.add(("owl_eye", outline))
 
@@ -245,6 +285,9 @@ def build_owl_frame(p: OwlParams) -> DrawList:
             base_y = -0.345 - lift * 0.55 - off * 0.85
             tip_x = side * (0.125 + shorten + 0.040 * flare)
             tip_y = -0.250 - lift - off * 1.35 - 0.045 * flare * (1.0 - shorten)
+            # 夹紧：眉羽不能飞出脸外
+            tip_x = clamp(tip_x, -0.62, 0.62)
+            tip_y = clamp(tip_y, -0.52, 0.10)
             w0 = (0.078 + 0.026 * flare) * wmul
             w1 = (0.016 + 0.010 * flare) * wmul
             p0 = place(base_x, base_y)
