@@ -317,6 +317,49 @@ class SimDevice(threading.Thread):
         self._stop.set()
 
 
+class ReplayDriver(threading.Thread):
+    """
+    把录好的 JSON 按时间轴重放进 Bridge。
+    用来排除"人的手速"这个变量——判定该触发却没触发，先跑一遍回放确认。
+    """
+
+    def __init__(self, path: str, bridge: Bridge, side_map: dict | None = None):
+        super().__init__(daemon=True)
+        self.path = path
+        self.bridge = bridge
+        self.side_map = side_map or {}
+        self._stop = threading.Event()
+
+    def run(self) -> None:
+        import json
+        try:
+            with open(self.path, encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as e:
+            print(f"  !! 读回放文件失败: {e}", flush=True)
+            return
+
+        events = data.get("events", [])
+        if not events:
+            print("  !! 回放文件里没有事件", flush=True)
+            return
+
+        t_base = events[0]["t_ms"] / 1000.0
+        start = time.monotonic()
+        for ev in events:
+            if self._stop.is_set():
+                return
+            due = ev["t_ms"] / 1000.0 - t_base
+            wait = due - (time.monotonic() - start)
+            if wait > 0:
+                time.sleep(min(wait, 0.5))
+            side = self.side_map.get(ev["device"], ev["device"])
+            self.bridge.feed(side, ev["state"])
+
+    def stop(self) -> None:
+        self._stop.set()
+
+
 # ---------------------------------------------------------------------------
 # 主程序
 # ---------------------------------------------------------------------------
@@ -336,6 +379,9 @@ def main(argv=None) -> int:
     ap.add_argument("--seconds", type=float, default=0,
                     help="运行多少秒后退出（0=一直跑）")
     ap.add_argument("--list", action="store_true", help="列出串口")
+    ap.add_argument("--replay", help="回放一个录制好的 JSON（排除手速变量）")
+    ap.add_argument("--swap", action="store_true",
+                    help="回放时交换 A/B（验证镜像逻辑是否对称）")
     args = ap.parse_args(argv)
 
     if args.list:
@@ -347,7 +393,13 @@ def main(argv=None) -> int:
     readers: list[SerialReader] = []
     sims: list[SimDevice] = []
 
-    if args.simulate:
+    replay = None
+    if args.replay:
+        print(f"=== 回放模式：{args.replay} ===")
+        side_map = {"A": "B", "B": "A"} if args.swap else None
+        replay = ReplayDriver(args.replay, bridge, side_map)
+        replay.start()
+    elif args.simulate:
         print("=== 模拟模式（没有硬件）===")
         print("  A 主动产生节奏，B 按 70% 概率跟随\n")
         a = SimDevice("A", bridge, role="lead")
@@ -391,6 +443,8 @@ def main(argv=None) -> int:
         r.stop()
     for s in sims:
         s.stop()
+    if replay:
+        replay.stop()
 
     print(f"\n共鸣共触发 {bridge.hits} 次")
     if args.record:
