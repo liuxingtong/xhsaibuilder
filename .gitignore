@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.venv/
+venv/
+env/
+
+# 预览产物（可由 render_frames.py 重新生成）
+preview/
+
+# macOS
+.DS_Store
+._*
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+*~
+
+# Arduino 构建产物
+arduino/**/build/
+*.hex
+*.elf
+*.bin
