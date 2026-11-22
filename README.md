@@ -338,11 +338,23 @@ eyes_render                    Tkinter | Pillow | Arduino GFX
 ## 已知限制
 
 - **Arduino 版编译通过，但从未上过真机**：
-  `arduino-cli compile --fqbn esp32:esp32:esp32s3` 已通过，
-  371KB flash / 23.8KB RAM / `--warnings all` 零警告。
-  但 TFT_eSPI 的 `User_Setup.h` 没有按你的实际屏幕配过，
-  而且**没有跑过**（没接硬件的编译通过 ≠ 能跑）。
-  上机第一件事是确认 `TFT_eSPI` 的引脚定义和屏幕对得上。
+
+  | 目标板 | 结果 |
+  |---|---|
+  | `esp32:esp32:esp32s3` | ✅ 371KB flash (28%) / 23.8KB RAM (7%) |
+  | `esp32:esp32:esp32c3` | ✅ 388KB flash (29%) / 15.6KB RAM (4%) |
+  | `esp32:esp32:esp32`（经典款） | ❌ TFT_eSPI 2.5.43 与 ESP32 core 4.0 不兼容 |
+
+  经典 ESP32 的报错在**库内部**：`TFT_eSPI/Processors/TFT_eSPI_ESP32.c:40:
+  'VSPI_HOST' was not declared`。ESP32 core 4.0 移除了这个宏，而 TFT_eSPI
+  2.5.43 还在用。跟我们的代码无关，换 S3 / C3 就没有这个问题
+  （S3 本来也是我们真正要用的板子）。
+
+  `--warnings all` 零警告。
+
+  但 TFT_eSPI 的 `User_Setup.h` 没有按你的实际屏幕配过，而且**没有跑过**
+  （没接硬件的编译通过 ≠ 能跑）。上机第一件事是确认 `TFT_eSPI` 的
+  引脚定义和屏幕对得上。
 - **帧率只有估算，没有实测**：下面那条 20 FPS 是 Adafruit 测同一块屏的数字，
   不是这份代码在这块屏上的实测值。
 - **帧率硬约束**：Adafruit 用同一块 GC9A01A 实测，ESP32-S3 画**双眼约 20 FPS**（单眼 39 FPS）。按 20 FPS 设计。
