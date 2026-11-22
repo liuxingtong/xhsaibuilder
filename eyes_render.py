@@ -65,16 +65,39 @@ def _gradient(n: int):
 
 
 class TkRenderer:
-    def __init__(self, canvas, size: int, bg_tag: str = "bg"):
+    def __init__(self, canvas, size: int, bg_tag: str = "bg",
+                 corner_color: str | None = None,
+                 origin: tuple[float, float] = (0.0, 0.0),
+                 tag: str = "eye"):
+        """
+        corner_color: 圆屏四角的填充色。给了就说明这是"圆屏"，四个角会被
+        涂成这个颜色，视觉上就是一块圆形屏幕。
+
+        origin / tag: 让同一个 Canvas 上可以并排画多块屏幕。
+
+        **为什么要有 origin**（踩过的坑）：最早每台设备用一个嵌套的
+        tk.Canvas 控件画眼睛、父画布画灯带环。但嵌套控件永远盖在父画布
+        上面，方形的四个角会把圆形的灯带切成几段 —— 看起来就是
+        "两个黑色方块盖住了圆环"。把眼睛也画到同一块画布上，
+        按 origin 平移，就不存在遮挡问题了。
+        """
         self.canvas = canvas
         self.size = size
         self.c = size / 2.0
         self.r = size / 2.0
+        self.ox, self.oy = origin
+        self.tag = tag
         self.bg_tag = bg_tag
+        self.corner_color = corner_color
         self._bg_drawn = False
 
     def px(self, v: float) -> float:
-        return to_px(v, self.c, self.r)
+        return self.ox + to_px(v, self.c, self.r)
+
+    def py(self, v: float) -> float:
+        """y 方向单独一个函数 —— 早期 px() 同时用来算 x 和 y，
+        加了 origin 之后 y 会被加上 ox，整只眼睛飞到画布下方去。"""
+        return self.oy + to_px(v, self.c, self.r)
 
     def draw_background(self) -> None:
         """
@@ -87,15 +110,42 @@ class TkRenderer:
             return
         n = 14
         for i, col in enumerate(_gradient(n)):
-            y0 = self.size * i / n
-            y1 = self.size * (i + 1) / n + 1
-            self.canvas.create_rectangle(0, y0, self.size, y1,
+            y0 = self.oy + self.size * i / n
+            y1 = self.oy + self.size * (i + 1) / n + 1
+            self.canvas.create_rectangle(self.ox, y0, self.ox + self.size, y1,
                                          fill=hex_color(col), outline="",
                                          tags=self.bg_tag)
+        if self.corner_color:
+            self._mask_corners()
         self._bg_drawn = True
 
+    def _mask_corners(self) -> None:
+        """
+        把圆外的地方涂掉，屏幕看起来就是圆的。
+
+        逐扫描行算半弦长，超出圆的部分填角 - 和 Arduino 版的遮罩同一套算法，
+        这样 PC 预览和真机边缘一致。背景只画一次，所以这点开销无所谓。
+        """
+        r = self.r
+        c = self.c
+        for y in range(self.size):
+            dy = y - c
+            half = math.sqrt(max(0.0, r * r - dy * dy))
+            x0 = c - half
+            x1 = c + half
+            yy = self.oy + y
+            if x0 > 0:
+                self.canvas.create_rectangle(self.ox, yy, self.ox + int(x0) + 1, yy + 1,
+                                             fill=self.corner_color, outline="",
+                                             tags=self.bg_tag)
+            if x1 < self.size:
+                self.canvas.create_rectangle(self.ox + int(x1), yy,
+                                             self.ox + self.size, yy + 1,
+                                             fill=self.corner_color, outline="",
+                                             tags=self.bg_tag)
+
     def render(self, dl: DrawList) -> None:
-        self.canvas.delete("eye")
+        self.canvas.delete(self.tag)
         self.draw_background()
         for item in dl.items:
             self._item(item)
@@ -111,18 +161,18 @@ class TkRenderer:
             self._special(item)
 
     def _ellipse(self, e: Ellipse) -> None:
-        cx, cy = self.px(e.cx), self.px(e.cy)
+        cx, cy = self.px(e.cx), self.py(e.cy)
         rx, ry = e.rx * self.r, e.ry * self.r
         self.canvas.create_oval(cx - rx, cy - ry, cx + rx, cy + ry,
                                 fill=hex_color(unpack(e.mood)),
-                                outline="", tags="eye")
+                                outline="", tags=self.tag)
 
     def _polygon(self, p: Polygon) -> None:
         flat = []
         for x, y in p.points:
-            flat.extend((self.px(x), self.px(y)))
+            flat.extend((self.px(x), self.py(y)))
         self.canvas.create_polygon(flat, fill=hex_color(unpack(p.mood)),
-                                   outline="", tags="eye")
+                                   outline="", tags=self.tag)
 
     def _arc_pts(self, cx, cy, rx, ry, a0, a1, n=24):
         pts = []
@@ -138,28 +188,28 @@ class TkRenderer:
             _, cx, cy, rx, ry = item
             # 瞳孔用固定的深色 + 一圈更深的边，让它有"洞"的感觉
             self.canvas.create_oval(
-                self.px(cx) - rx * self.r, self.px(cy) - ry * self.r,
-                self.px(cx) + rx * self.r, self.px(cy) + ry * self.r,
-                fill=hex_color((13, 11, 17)), outline="", tags="eye")
+                self.px(cx) - rx * self.r, self.py(cy) - ry * self.r,
+                self.px(cx) + rx * self.r, self.py(cy) + ry * self.r,
+                fill=hex_color((13, 11, 17)), outline="", tags=self.tag)
 
         elif kind == "crescent":
             _, cx, cy, rx, ry, col, a0, a1 = item
             pts = self._arc_pts(cx, cy, rx, ry, a0, a1, 18)
             flat = []
             for x, y in pts:
-                flat.extend((self.px(x), self.px(y)))
+                flat.extend((self.px(x), self.py(y)))
             self.canvas.create_line(flat, fill=hex_color(unpack(col)),
                                     width=max(1, int(self.r * 0.013)),
-                                    capstyle="round", tags="eye")
+                                    capstyle="round", tags=self.tag)
 
         elif kind == "arc":
             _, cx, cy, rx, ry, a0, a1, col, w = item
             pts = self._arc_pts(cx, cy, rx, ry, a0, a1, 20)
             flat = []
             for x, y in pts:
-                flat.extend((self.px(x), self.px(y)))
+                flat.extend((self.px(x), self.py(y)))
             self.canvas.create_line(flat, fill=hex_color(unpack(col)),
-                                    width=max(1, int(self.r * w)), tags="eye")
+                                    width=max(1, int(self.r * w)), tags=self.tag)
 
         elif kind == "smile_arc":
             _, cx, cy, rx, ry, amount, col = item
@@ -170,19 +220,36 @@ class TkRenderer:
                 t = i / n
                 xn = -1.0 + 2.0 * t
                 y = cy + ry * (0.15 + 0.50 * (1.0 - xn * xn)) * (0.55 + 0.45 * amount)
-                flat.extend((self.px(cx + rx * xn), self.px(y)))
+                flat.extend((self.px(cx + rx * xn), self.py(y)))
             self.canvas.create_line(flat, fill=hex_color(unpack(col)),
                                     width=max(2, int(self.r * 0.038 * min(1.0, 0.4 + amount))),
-                                    capstyle="round", tags="eye")
+                                    capstyle="round", tags=self.tag)
 
         elif kind == "dot":
             _, cx, cy, r = item
             s = max(1.0, r * self.r)
-            x, y = self.px(cx), self.px(cy)
+            x, y = self.px(cx), self.py(cy)
             self.canvas.create_rectangle(x - s, y - s, x + s, y + s,
-                                         fill="#e8eefc", outline="", tags="eye")
+                                         fill="#e8eefc", outline="", tags=self.tag)
 
-        elif kind in ("bond_heart", "bond_ring", "lid", "spark"):
+        elif kind == "spark":
+            _, cx, cy, size, ang, phase = item
+            # 四角星：两条长轴 + 两条短轴。和 PillowRenderer 同一个画法，
+            # 否则窗口里看不到星光、导出的 PNG 里却有（之前就是这个 bug）。
+            x, y = self.px(cx), self.py(cy)
+            s = size * self.r
+            long_, short = s * 2.4, s * 0.62
+            ca, sa = math.cos(ang), math.sin(ang)
+            pts = []
+            for dx, dy in ((0, -long_), (short, -short), (long_, 0), (short, short),
+                           (0, long_), (-short, short), (-long_, 0), (-short, -short)):
+                pts.extend((x + dx * ca - dy * sa, y + dx * sa + dy * ca))
+            # 冷/暖交替，转起来才有"闪"
+            col = (255, 226, 120) if (phase % 0.5) < 0.25 else (150, 214, 255)
+            self.canvas.create_polygon(pts, fill=hex_color(col),
+                                       outline="", tags=self.tag)
+
+        elif kind in ("bond_heart", "bond_ring", "lid"):
             # 旧格式（背面兼容）：核心已经不再产生，留着免得老脚本炸
             self._legacy(item)
 
@@ -192,16 +259,16 @@ class TkRenderer:
             _, pts = item
             flat = []
             for x, y in pts:
-                flat.extend((self.px(x), self.px(y)))
+                flat.extend((self.px(x), self.py(y)))
             self.canvas.create_polygon(flat, fill="#ff9cb0" if kind == "bond_heart"
-                                       else "#2c241e", outline="", tags="eye")
+                                       else "#2c241e", outline="", tags=self.tag)
         elif kind == "bond_ring":
             _, pts, alpha = item
             flat = []
             for x, y in pts:
-                flat.extend((self.px(x), self.px(y)))
+                flat.extend((self.px(x), self.py(y)))
             self.canvas.create_polygon(flat, fill="", outline="#ffe296",
-                                       width=max(1, int(self.r * 0.012)), tags="eye")
+                                       width=max(1, int(self.r * 0.012)), tags=self.tag)
 
 
 # ---------------------------------------------------------------------------

@@ -237,7 +237,17 @@ class AiFollower:
 SCREEN = 240
 SCALE = 2
 DEV_PX = SCREEN * SCALE
-RING_PAD = int(DEV_PX * 0.075)
+#: 窗口统一底色（画布四角遮罩也用它，才能看不出方块）
+BG = "#0a0908"
+
+# 灯带环的留白：让环贴住圆屏外沿，像一圈实体灯带。
+#
+# 老版本这里是 0.075，而且每台设备用一个**嵌套画布控件**画眼睛。
+# 嵌套控件永远盖在父画布上方，方画布的四个角比环半径还大 31px，
+# 于是环被切成几段 —— 看起来就是"两个黑色方框盖住了圆环"。
+# 现在眼睛和灯带画在同一块画布上（TkRenderer 的 origin/tag），
+# 遮挡问题从结构上消失了，间距只按美观定。
+RING_PAD = int(DEV_PX * 0.13)
 TOTAL_DEV = DEV_PX + RING_PAD * 2
 GAP = 56
 
@@ -258,24 +268,27 @@ class DuoApp:
         width = TOTAL_DEV * 2 + GAP + 40
         height = TOTAL_DEV + 150
         root.title("Duetto · 单机双人联调")
-        root.configure(bg="#0a0908")
+        self.bg = BG
+        root.configure(bg=BG)
         root.resizable(False, False)
 
         self.canvas = tk.Canvas(root, width=width, height=height,
-                                bg="#0a0908", highlightthickness=0, bd=0)
+                                bg=BG, highlightthickness=0, bd=0)
         self.canvas.pack()
 
-        self.cv_a = self._make_device(20, 20, "A · 你", "#ffb86b")
-        self.cv_b = self._make_device(20 + TOTAL_DEV + GAP, 20, "B · 对方", "#6fd3ff")
+        self.pos_a = self._make_device(20, 20, "A · 你", "#ffb86b")
+        self.pos_b = self._make_device(20 + TOTAL_DEV + GAP, 20, "B · 对方", "#6fd3ff")
 
         # 底部状态区
         self.status = tk.Label(root, text="", font=("Helvetica", 12),
-                               fg="#9b8d7d", bg="#0a0908", anchor="w",
+                               fg="#9b8d7d", bg=BG, anchor="w",
                                justify="left")
         self.status.pack(fill="x", padx=20, pady=(4, 12))
 
-        self.renderer_a = TkRenderer(self.cv_a, DEV_PX)
-        self.renderer_b = TkRenderer(self.cv_b, DEV_PX)
+        self.renderer_a = TkRenderer(self.canvas, DEV_PX, corner_color=BG,
+                                     origin=self.pos_a, tag="eyeA", bg_tag="bgA")
+        self.renderer_b = TkRenderer(self.canvas, DEV_PX, corner_color=BG,
+                                     origin=self.pos_b, tag="eyeB", bg_tag="bgB")
 
         root.bind("<KeyPress>", self.on_press)
         root.bind("<KeyRelease>", self.on_release)
@@ -287,13 +300,16 @@ class DuoApp:
         self.tick()
 
     def _make_device(self, x: int, y: int, label: str, color: str):
+        """
+        只画标签，返回这台设备的**屏幕左上角**坐标。
+
+        屏幕本身不建单独的画布 —— 眼睛和灯带都画在同一个 Canvas 上，
+        否则嵌套的画布控件会把灯带盖掉（方形角压在圆环上）。
+        """
         total = TOTAL_DEV
         self.canvas.create_text(x + total // 2, y - 12, text=label,
                                 fill=color, font=("Helvetica", 11, "bold"))
-        cv = tk.Canvas(self.canvas, width=DEV_PX, height=DEV_PX,
-                       bg="#14100c", highlightthickness=0, bd=0)
-        self.canvas.create_window(x + total // 2, y + total // 2, window=cv)
-        return cv
+        return (x + (total - DEV_PX) / 2.0, y + (total - DEV_PX) / 2.0)
 
     # -- 输入 ------------------------------------------------------------
 
@@ -380,8 +396,8 @@ class DuoApp:
             la = light_for(self.sm_a, side=+1)
             lb = light_for(self.sm_b, side=-1)
 
-        self._render_device("A", self.sm_a, self.cv_a, la, resonant)
-        self._render_device("B", self.sm_b, self.cv_b, lb, resonant)
+        self._render_device("A", self.sm_a, la, resonant)
+        self._render_device("B", self.sm_b, lb, resonant)
 
         self._update_status(resonant, t)
         self.judge.note_end(t, resonant, self.was_resonant)
@@ -389,11 +405,11 @@ class DuoApp:
 
         self.root.after(8, self.tick)
 
-    def _render_device(self, tag: str, sm: EyeStateMachine, cv, colors,
+    def _render_device(self, tag: str, sm: EyeStateMachine, colors,
                        resonant: bool) -> None:
         renderer = self.renderer_a if tag == "A" else self.renderer_b
         renderer.render(sm.build_frame())
-        self._draw_ring(cv.master, tag, colors)
+        self._draw_ring(self.canvas, tag, colors)
 
     def _draw_ring(self, canvas, tag: str, colors) -> None:
         """灯带左右分区。colors = (left, right)。"""
