@@ -9,12 +9,17 @@
 ## 30 秒上手
 
 ```bash
-python3 duetto_duo.py --mode split     # ★ 双人联调（左右各一台）
-python3 eyes_sim.py --showcase         # 单台眼睛原型（启动即轮播全部设计）
+~/.local/bin/python3.12 duetto_duo.py --mode split   # ★ 双人联调（左右各一台）
+~/.local/bin/python3.12 eyes_sim.py --showcase       # 单台眼睛原型（启动即轮播）
 ```
 
-> 需要 Python 3.8+ 与 Tkinter（macOS 自带；Linux 装 `python3-tk`）。
-> 无窗口环境想看效果：`python3 render_frames.py`（依赖 Pillow）。
+> **⚠️ macOS 上别用系统的 `python3`。** 它带的是 Tk 8.5.9，画不出 Canvas ——
+> 窗口会开出来但**一片空白**。这不是动画代码的问题（同样一份状态机用 PDF 渲染完全正常）。
+> 用一个带 Tk 9 的 Python，比如 `~/.local/bin/python3.12`（Tk 9.0.4）。
+> 脚本启动时也会检查 Tk 版本并提示。
+>
+> 需要 Python 3.8+ 与 Tkinter（Linux 装 `python3-tk`）。
+> 无窗口环境想看效果：`python3 render_frames.py`（依赖 Pillow，和 Tk 无关）。
 
 ## 按键（双人模式）
 
