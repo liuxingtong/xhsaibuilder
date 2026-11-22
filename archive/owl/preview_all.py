@@ -21,6 +21,8 @@ import sys
 
 from PIL import Image, ImageDraw, ImageFont
 
+import _bootstrap  # noqa: F401  （让归档脚本还能找到仓库根的 eyes_core）
+
 import eyes_core as ec
 from duetto_owl import build_owl_frame
 from duetto_render import OwlPillowRenderer
