@@ -289,21 +289,27 @@ eyes_render                    Tkinter | Pillow | Arduino GFX
 
 `build_frame()` 返回的 `DrawList` 里只有这些图元：
 
+图元全部自带 `mood` 字段（24bit 整数 `0xRRGGBB`），**渲染层不持有任何配色**。
+
 | 图元 | 内容 | Tkinter / GFX 对应 |
 |---|---|---|
-| `Ellipse` | 眼白，(cx, cy, rx, ry) | `create_oval` / `fillEllipse` |
-| `('pupil', cx, cy, rx, ry)` | 瞳孔 | `fillEllipse` |
-| `('glint', cx, cy, rx, ry)` | 高光点 | `fillCircle` |
-| `('lid', pts)` | 眼皮多边形 | `create_polygon` / 逐列 `fillRect` |
-| `('spark', cx, cy, size, ang, phase)` | 彩蛋星星 | 小四角星 / `fillCircle` |
-| `('bond_heart', pts)` | ★ 共振心形 | `fillPoly` 或 两圆 + 三角 |
-| `('bond_ring', pts, alpha)` | ★ 共振光环 | 描边多边形 / 空心圆 |
+| `Ellipse(cx, cy, rx, ry, mood)` | 任意颜色的圆/椭圆。眼睛的 9 层全用它 | `create_oval` / `fillEllipse` |
+| `Polygon(points, mood)` | 任意颜色的多边形。眼皮、共振心形、弯眼笑用它 | `create_polygon` / 逐列 `fillRect` |
+| `('pupil', cx, cy, rx, ry)` | 瞳孔 | `fillEllipse` 固定深色 |
+| `('crescent', cx, cy, rx, ry, col, a0, a1)` | 下缘月光弧（角度 50°–130°） | `drawArc` |
+| `('smile_arc', cx, cy, rx, ry, amount, col)` | 弯眼笑的弧 | `drawArc` 或折线 |
+| `('spark', cx, cy, size, ang, phase)` | 彩蛋星星 | `fillCircle` 缩小版 / 四角星 |
+| `('bond_ring', pts, alpha)` | 共振光环 | 空心圆 |
+| `('dot', cx, cy, r)` | 5×7 点阵字的单个像素 | `fillRect` |
+
+> 绘制顺序就是 `_draw_eye` 里的顺序，**不能调换**，调换就不像眼睛了。
+> 眼皮必须比虹膜暗，瞳孔必须比虹膜内圈暗 —— 这两条没了，"眯眼"和"瞳孔"都读不出来。
 
 时间参数（已按调研建议校准，无需再调）：
 
 | 动作 | 时长 | 备注 |
 |---|---|---|
-| 眨眼 | 160ms | 随机 2.4–6.5s 一次 |
+| 眨眼 | 160ms | 随机 2.4–6.5s 一次（兴奋时 1.4–3.8s） |
 | 轻敲 | 380ms | 下沉 0.26，回弹 42% |
 | 重击 | 800ms | 下沉 0.40，回弹 75% + 左右晃 |
 | 上滑彩蛋 | 2.6s | 星星爆发 |
@@ -326,6 +332,13 @@ eyes_render                    Tkinter | Pillow | Arduino GFX
 
 ## 已知限制
 
-- **ESP32 核心的编译验证尚未完成**（见下）。`arduino/eyes_arduino/` 里是几何版移植，逻辑与 Python 一致但未实测。
+- **Arduino 版编译通过，但从未上过真机**：
+  `arduino-cli compile --fqbn esp32:esp32:esp32s3` 已通过，
+  371KB flash / 23.8KB RAM / `--warnings all` 零警告。
+  但 TFT_eSPI 的 `User_Setup.h` 没有按你的实际屏幕配过，
+  而且**没有跑过**（没接硬件的编译通过 ≠ 能跑）。
+  上机第一件事是确认 `TFT_eSPI` 的引脚定义和屏幕对得上。
+- **帧率只有估算，没有实测**：下面那条 20 FPS 是 Adafruit 测同一块屏的数字，
+  不是这份代码在这块屏上的实测值。
 - **帧率硬约束**：Adafruit 用同一块 GC9A01A 实测，ESP32-S3 画**双眼约 20 FPS**（单眼 39 FPS）。按 20 FPS 设计。
 - **共振的双向灯带只在 PC 侧模拟**。真机上「对方状态画到自己灯带另一半」需要固件实现 `P_X` 解析，见 Step 2。
