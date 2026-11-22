@@ -1336,9 +1336,11 @@ def _draw_bond_ring(dl: DrawList, amount: float, clock: float,
     """
     for k in (0, 1):
         phase = (clock * 0.9 + k * 0.5) % 1.0
-        r = 0.46 + 0.50 * phase
+        # 半径收到 0.92 以内：超过 1.0 的部分在真实圆屏上根本不存在，
+        # 让环"跑出屏幕"在 PC 预览里看着是自然的，上机就变成像素消失了。
+        r = 0.42 + 0.50 * phase
         alpha = (1.0 - phase) * amount
-        if alpha < 0.05:
+        if alpha < 0.05 or r > 0.93:
             continue
         ring_pts = []
         n = 40
