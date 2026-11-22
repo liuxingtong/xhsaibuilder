@@ -77,7 +77,9 @@ class EyeSimApp:
         # 状态栏既显示按键反馈，也显示轮播进度（见 tick）
         self.status.pack(fill="x")
 
-        self.renderer = TkRenderer(self.canvas, self.px_size)
+        # corner_color 让画布四角涂成窗口底色 → 看起来是一块圆屏
+        self.renderer = TkRenderer(self.canvas, self.px_size,
+                                   corner_color="#0a0a0f")
         self._draw_ring()
 
         # 键盘绑定

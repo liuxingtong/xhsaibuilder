@@ -267,13 +267,30 @@ class EyeDesign:
     spark       彩蛋星星
     tint        本设计的整体色相，共振时的心形 / 光环从这里取色
 
-    形状个性
-    --------
-    openness     竖向张开系数
-    width        横向系数
-    pupil_ratio  瞳孔 / 眼眶 半径比。越小虹膜越宽
-    marquee      虹膜里高光跑马灯的强度
-    gaze_kick    看向侧面时，虹膜往那个方向"被推"的比例
+    形态参数（这才是"一套设计看上去不一样"的真正来源）
+    ------------------------------------------------
+    参考 LOVOT 的 25 套眼睛：它们之间的差别主要不在色相，而在
+        · 眼型（圆的 / 竖长的 / 扁的 / 杏仁的）
+        · 虹膜占眼眶多大、瞳孔占虹膜多大 → 决定"眼神是呆还是灵"
+        · 高光有几个、放在哪 → 决定"是聪明、是可爱、还是无辜"
+        · 眼白露多少 → 决定"是卡通还是写实"
+
+    所以这里把形态做成可组合参数：
+
+    sclera      眼型：round / tall / wide / almond
+    iris_ratio  虹膜 / 眼眶 半径比（0.66 小眼睛 ～ 0.92 几乎全是虹膜）
+    pupil_ratio 瞳孔 / **虹膜** 半径比（不是占眼眶！）。
+                这一条最容易被搞错：如果按占眼眶算，虹膜只会剩下一圈边，
+                看起来就是"黑色圆盘镶了道金边"，而不是一只眼睛。
+    hi_style    高光样式：classic / above / triple / none
+                  classic  左上大光 + 右下小光（默认，最"可爱"）
+                  above    正上方单光（竖长眼配这个会显得聪明、成熟）
+                  triple   三个小闪点（手绘感、湿润感）
+                  none     无主光，只留边缘反光（安静、神秘）
+    openness    竖向张开系数（眨眼 / 情绪用）
+    width       横向系数
+    marquee     虹膜里跑马灯的强度
+    gaze_kick   看侧面时虹膜被推的比例
     """
 
     key: str
@@ -288,9 +305,12 @@ class EyeDesign:
     needle: Tuple[int, int, int] = (210, 222, 240)
     spark: Tuple[int, int, int] = (255, 226, 120)
     tint: Tuple[int, int, int] = (255, 200, 150)
+    sclera: str = "round"
+    iris_ratio: float = 0.80
+    pupil_ratio: float = 0.50
+    hi_style: str = "classic"
     openness: float = 1.00
     width: float = 1.00
-    pupil_ratio: float = 0.52
     marquee: float = 0.22
     gaze_kick: float = 0.06
 
@@ -390,67 +410,73 @@ def _reg(d: EyeDesign) -> EyeDesign:
 #: 默认：暖金虹膜。最上镜的一套，日常 / 主形象用它。
 _REG_CLASSIC = _reg(EyeDesign(
     key="classic", name="暖金 · classic",
-    glow=(34, 36, 50), eye_white=(250, 246, 236),
-    iris_outer=(238, 152, 44), iris_inner=(104, 58, 24),
-    pupil=(13, 11, 17), lid=(46, 36, 30),
+    glow=(30, 34, 46), eye_white=(252, 248, 238),
+    iris_outer=(200, 120, 26), iris_inner=(126, 62, 22),
+    pupil=(12, 10, 15), lid=(46, 36, 30),
     sheen=(255, 255, 255), needle=(255, 232, 190),
     spark=(255, 214, 120), tint=(255, 196, 132),
-    openness=1.00, pupil_ratio=0.58, marquee=0.16,
+    sclera="round", iris_ratio=0.74, pupil_ratio=0.50, hi_style="classic",
+    marquee=0.14,
 ))
 
-#: 青碧：低饱和冷色，安静耐看。在"往上看"时出现。
+#: 青碧：大虹膜 + 小瞳孔 + 无主高光 → 安静、神秘。对应 LOVOT 的「ロンロン」。
 _REG_MINT = _reg(EyeDesign(
     key="mint", name="青碧 · dusk",
-    glow=(24, 38, 44), eye_white=(236, 246, 246),
-    iris_outer=(54, 176, 178), iris_inner=(16, 58, 68),
-    pupil=(9, 15, 19), lid=(28, 40, 44),
-    sheen=(255, 255, 255), needle=(200, 240, 236),
+    glow=(22, 36, 42), eye_white=(238, 248, 248),
+    iris_outer=(32, 150, 154), iris_inner=(14, 64, 76),
+    pupil=(8, 14, 18), lid=(28, 40, 44),
+    sheen=(236, 255, 252), needle=(200, 240, 236),
     spark=(150, 240, 220), tint=(140, 226, 220),
-    openness=1.08, pupil_ratio=0.6, marquee=0.20,
+    sclera="round", iris_ratio=0.8, pupil_ratio=0.40, hi_style="none",
+    marquee=0.30,
 ))
 
-#: 樱粉：手绘水彩感，最"可爱"的一套。往右看 / 共振预备时用。
+#: 樱粉：扁眼 + 三闪点 → 手绘水彩、湿润感。对应「ふわふわ」。
 _REG_ROSE = _reg(EyeDesign(
     key="rose", name="樱粉 · bloom",
-    glow=(46, 30, 38), eye_white=(252, 240, 240),
-    iris_outer=(234, 124, 140), iris_inner=(92, 38, 56),
-    pupil=(17, 9, 15), lid=(54, 32, 42),
+    glow=(46, 30, 38), eye_white=(254, 244, 244),
+    iris_outer=(214, 96, 116), iris_inner=(110, 42, 62),
+    pupil=(18, 9, 16), lid=(54, 32, 42),
     sheen=(255, 255, 255), needle=(255, 226, 230),
     spark=(255, 190, 210), tint=(255, 158, 180),
-    openness=1.03, pupil_ratio=0.54, marquee=0.28,
+    sclera="wide", iris_ratio=0.7, pupil_ratio=0.56, hi_style="triple",
+    marquee=0.34,
 ))
 
-#: 霜蓝：往左看。偏冷偏亮，和樱粉形成明确的方向对比。
+#: 霜蓝：杏仁眼 → 机敏、像猫。
 _REG_FROST = _reg(EyeDesign(
     key="frost", name="霜蓝 · frost",
-    glow=(22, 32, 50), eye_white=(240, 246, 255),
-    iris_outer=(96, 168, 240), iris_inner=(24, 46, 90),
+    glow=(20, 30, 48), eye_white=(242, 248, 255),
+    iris_outer=(70, 150, 232), iris_inner=(22, 50, 96),
     pupil=(9, 13, 25), lid=(24, 34, 54),
     sheen=(255, 255, 255), needle=(214, 232, 255),
     spark=(160, 216, 255), tint=(132, 190, 255),
-    openness=1.05, pupil_ratio=0.57, marquee=0.24,
+    sclera="almond", iris_ratio=0.74, pupil_ratio=0.46, hi_style="classic",
+    marquee=0.22,
 ))
 
-#: 靛紫：往下看 / 害羞。瞳孔占比最大，看起来安静专注。
+#: 靛紫：竖长眼 + 三闪点 → 专注、有点怯。
 _REG_INDIGO = _reg(EyeDesign(
     key="indigo", name="靛紫 · しんしん",
-    glow=(28, 26, 46), eye_white=(242, 240, 252),
-    iris_outer=(126, 114, 210), iris_inner=(28, 22, 60),
+    glow=(28, 26, 46), eye_white=(246, 244, 255),
+    iris_outer=(104, 96, 196), iris_inner=(28, 22, 62),
     pupil=(11, 9, 19), lid=(32, 28, 52),
     sheen=(255, 255, 255), needle=(224, 220, 255),
     spark=(196, 180, 255), tint=(178, 168, 255),
-    openness=0.95, pupil_ratio=0.63, marquee=0.18,
+    sclera="tall", iris_ratio=0.76, pupil_ratio=0.52, hi_style="triple",
+    marquee=0.20,
 ))
 
-#: 暗金：主高光很弱，靠虹膜里的跑马灯提供亮度 —— 对应 LOVOT 的「ロンロン」。
+#: 暗金：竖长 + 大虹膜 + 小瞳孔 + 顶置高光 → 成熟、聪明。对应「こうこう」。
 _REG_EMBER = _reg(EyeDesign(
-    key="ember", name="暗金 · ロンロン",
-    glow=(40, 32, 22), eye_white=(248, 238, 220),
-    iris_outer=(192, 134, 54), iris_inner=(50, 32, 20),
+    key="ember", name="暗金 · こうこう",
+    glow=(40, 32, 22), eye_white=(252, 244, 228),
+    iris_outer=(176, 116, 30), iris_inner=(84, 46, 16),
     pupil=(9, 7, 7), lid=(38, 28, 20),
-    sheen=(255, 246, 228), needle=(255, 220, 168),
+    sheen=(255, 250, 236), needle=(255, 220, 168),
     spark=(255, 208, 132), tint=(255, 186, 118),
-    openness=0.98, pupil_ratio=0.6, marquee=0.44,
+    sclera="tall", iris_ratio=0.82, pupil_ratio=0.36, hi_style="above",
+    marquee=0.26,
 ))
 
 DEFAULT_DESIGN = "classic"
@@ -1029,7 +1055,7 @@ class EyeStateMachine:
             # 强度分两段：先冲到 1（0.25s），尾段再慢慢化回普通眼睛。
             if hype_env > 0.05:
                 # 星星眼要比普通眼睛**大一圈**，才有"炸开"的感觉
-                grow = 1.22 + 0.30 * clamp(hype_env, 0, 1)
+                grow = 1.10 + 0.22 * clamp(hype_env, 0, 1)
                 shape_pts = blend_shape("round", "star", clamp(hype_env, 0, 1),
                                         cx, cy, rx_ * grow, ry_ * grow)
                 # 星星用固定的亮金 —— 不要从 design.iris_outer 混，
@@ -1093,83 +1119,131 @@ class EyeStateMachine:
         """
         一只眼睛，从外到内分层画。
 
-        这个顺序就是移植到 Arduino 时的绘制顺序，别调换：
-          1 眼白 glow   2 眼白本体   3 虹膜外圈   4 虹膜内圈   5 瞳孔
-          6 瞳孔内暗部  7 主高光     8 次高光     9 内眼角反光（可选）
-         10 上皮褶      11 弯眼笑弧  12 眼皮（压扁时）
+        比例模型（这是像不像"眼睛"的关键）：
+            眼白      = 整个椭圆
+            虹膜      = 眼白 × iris_ratio            （默认 0.80）
+            瞳孔      = **虹膜** × pupil_ratio        （默认 0.50 → 占眼白 0.40）
+            高光      = 瞳孔上的小圆
 
-        坐标约束：所有圆都不超过 eye_white 的边界，所以眼睛永远是
-        "一个完整的圆"，不会像之前那样被眼皮切掉半张脸。
+        注意瞳孔是相对**虹膜**算的。早先按相对眼白算，0.58 的瞳孔配上
+        0.88 的虹膜，虹膜只剩薄薄一圈边 —— 看起来是"黑盘子镶金边"，
+        根本不像眼睛。这是这次重做的核心修正。
+
+        内眼角 / 跑马灯 / 高光的细节都是为了"湿润感"和"深度"，不是装饰。
+
+        绘制顺序（移植 Arduino 时照抄，别调换）：
+          1 眼白外圈   2 眼白本体   3 虹膜外圈   4 虹膜内圈（渐变）
+          5 虹膜内亮环 6 瞳孔       7 高光       8 下缘月光
+          9 弯眼笑弧  10 眼皮
         """
         col = rgb_key
 
-        # 1) 眼白外圈：比背景亮一点点，做出"球体嵌进屏幕"
-        if d.glow != d.eye_white:
-            dl.add(Ellipse(cx, cy, rx * 1.10, ry * 1.10, mood=col(d.glow)))
+        # ---- 眼型：只改椭圆长短轴，四种眼型差别明显且实现便宜 ----------
+        srx, sry = sclera_dims(d.sclera, rx, ry)
 
-        # 2) 眼白本体（不是白，是设计主色的淡版）
-        dl.add(Ellipse(cx, cy, rx, ry, mood=col(d.eye_white)))
+        # 1) 眼白外圈：比眼白暗一点点，做出球体嵌进屏幕的边界
+        dl.add(Ellipse(cx, cy, srx * 1.08, sry * 1.08, mood=col(d.glow)))
 
-        # ---- 视线的实现 ---------------------------------------------
-        # **只让虹膜+瞳孔在眼白里平移**，眼白本身不动。
-        # 这是"眼睛看东西"和"眼睛整体在滑"的分界线，差别非常大。
-        # 偏移量留出眼眶半径，保证虹膜不会整个跑出眼白。
-        #
-        # 关键约束：虹膜直径是眼眶的 0.88，所以左右最多只能挪 12%，
-        # 上下更少 —— 挪多了会一边露出背景，看起来像眼球破了。
-        pr = clamp(d.pupil_ratio * (1.0 - 0.16 * surprise), 0.30, 0.90)
-        prx, pry = rx * pr, ry * pr
-        ir = 0.88
-        max_sx = max(0.0, rx * (1.0 - ir))
-        max_sy = max(0.0, ry * (1.0 - ir))
-        gxc = cx + clamp(gx, -1.0, 1.0) * max_sx
-        gyc = cy + clamp(gy, -1.0, 1.0) * max_sy
+        # 2) 眼白本体
+        dl.add(Ellipse(cx, cy, srx, sry, mood=col(d.eye_white)))
 
-        # 3) 虹膜外圈 + 4) 内圈
-        #    虹膜是一个"环"：外圈深色底 + 内圈偏亮 → 就有了渐变
-        dl.add(Ellipse(gxc, gyc, rx * 0.88, ry * 0.88, mood=col(d.iris_outer)))
+        # ---- 视线 ----------------------------------------------------
+        # 只让虹膜和瞳孔在眼白里平移。而且**瞳孔比虹膜走得更多**：
+        # 这是 GROOVE X 动画师文章里明确提到的一条
+        # （虹彩と瞳孔では移動距離が異なり、瞳孔の方が進行方向に対してより移動する）。
+        # 少了这一条，两只黑球同步平移，看起来就很"假"。
+        ir = clamp(d.iris_ratio, 0.55, 0.95)
+        irx, iry = srx * ir, sry * ir
+        # 虹膜最多能挪到"刚好不露出背景"
+        max_sx = max(0.0, srx - irx)
+        max_sy = max(0.0, sry - iry)
+        gx = clamp(gx, -1.0, 1.0)
+        gy = clamp(gy, -1.0, 1.0)
+        ix = cx + gx * max_sx
+        iy = cy + gy * max_sy
 
-        # 5) 虹膜内圈（靠瞳孔那一圈，"被光照透"的亮边）
-        dl.add(Ellipse(gxc, gyc, rx * 0.80, ry * 0.80, mood=col(d.iris_inner)))
+        pr = clamp(d.pupil_ratio * (1.0 - 0.18 * surprise), 0.24, 0.86)
+        prx, pry = irx * pr, iry * pr
+        # 瞳孔再额外多走 30%，但不超过虹膜的余量
+        extra = 0.30
+        px_ = ix + gx * (irx - prx) * extra
+        py_ = iy + gy * (iry - pry) * extra
 
-        # 6) 虹膜内亮边：先铺一圈比内圈更亮的细环，再让瞳孔盖住它的中段。
-        #    露出来的那一圈就是"被光照透"的边 —— 深度感主要靠它。
+        # 3) 虹膜外圈（深）：让虹膜的边界从眼白里"立"起来
+        dl.add(Ellipse(ix, iy, irx, iry, mood=col(d.iris_outer)))
+
+        # 4) 虹膜内圈（浅）：外深内浅 = 中心亮，人眼就是这么有纵深的
+        dl.add(Ellipse(ix, iy, irx * 0.90, iry * 0.90, mood=col(d.iris_inner)))
+
+        # 5) 虹膜内亮环：贴着瞳孔外缘的一圈亮边，像光透过角膜
         rim = mix_rgb(d.iris_inner, d.iris_outer, 0.62)
-        dl.add(Ellipse(gxc, gyc, prx * 1.10, pry * 1.10, mood=col(rim)))
+        dl.add(Ellipse(px_, py_, prx * 1.18, pry * 1.18, mood=col(rim)))
 
-        # 7) 瞳孔。**瞳孔必须够大**，否则眼睛里"没有洞"，
-        #    看起来像一颗珠子而不是眼睛。
-        dl.add(("pupil", gxc, gyc, prx, pry))
+        # 6) 瞳孔
+        dl.add(("pupil", px_, py_, prx, pry))
 
-        # 7) 主高光：正圆（椭圆做出来的高光看着"糊"），位置略偏上有神。
-        #    高光跟着瞳孔走，但只跟一部分 —— 光是从环境来的，不完全跟眼睛走。
-        hx = lerp(cx, gxc, 0.55)
-        hy = lerp(cy, gyc, 0.55)
-        gr = prx * 0.30
-        dl.add(Ellipse(hx + prx * 0.36, hy - pry * 0.42, gr, gr,
-                       mood=col(d.sheen)))
+        # 7) 高光。四种样式，这是"性格"差别最大的地方：
+        #    classic 可爱 / above 聪明 / triple 湿润手绘 / none 静谧
+        self._draw_highlights(dl, px_, py_, prx, pry, d, inner_rot)
 
-        # 8) 次高光：右下角一个小圆点，给眼睛"玻璃质感"
-        gr2 = prx * 0.13
-        dl.add(Ellipse(hx + prx * 0.08, hy + pry * 0.54, gr2, gr2,
-                       mood=col(d.sheen)))
+        # 8) 下缘月光：正下方一小段弧，给眼球玻璃质感。
+        #    只取 50°..130°，取大了会变成横贯眼睛的一道亮杠，读起来像嘴。
+        if d.hi_style != "none":
+            dl.add(("crescent", px_, py_, prx * 1.16, pry * 1.16,
+                    col(mix_rgb(d.sheen, d.iris_outer, 0.55)), 50.0, 130.0))
 
-        # 9) 下缘反光（LOVOT 那种"底下有一圈月光"）。
-        #    角度只取 50°..130°（正下方一小段），画细一点 ——
-        #    取太大就成了横贯眼睛的一道亮杠，读起来像嘴。
-        dl.add(("crescent", gxc, gyc, prx * 1.13, pry * 1.13,
-                col(mix_rgb(d.sheen, d.iris_outer, 0.55)), 50.0, 130.0))
-
-        # 11) 弯眼笑：开心时眼睛下缘浮起一道向上弯的弧。
-        #     弧的半径比瞳孔小、位置比瞳孔低，所以它是**画在瞳孔内部的下半部**，
-        #     不会横穿整只眼睛变成一条白杠（这是上一版的毛病）。
+        # 9) 弯眼笑：开心时瞳孔里浮起一道上弯的弧
         if joy > 0.03:
-            dl.add(("smile_arc", gxc, gyc, prx * 0.92, pry * 0.92, joy,
+            dl.add(("smile_arc", px_, py_, prx * 0.92, pry * 0.92, joy,
                     col(d.sheen)))
 
-        # 12) 眼皮：只在压扁时出现，画在最上面
+        # 10) 眼皮：压扁时盖在最上面
         if squash > 0.03:
-            _draw_lid(dl, cx, cy, rx, ry, squash, d)
+            _draw_lid(dl, cx, cy, srx, sry, squash, d)
+
+    def _draw_highlights(self, dl: DrawList, px_: float, py_: float,
+                         prx: float, pry: float, d: EyeDesign,
+                         inner_rot: float) -> None:
+        """
+        高光。四种样式，位置是真的有讲究的：
+          classic  左上大光 + 右下小光 → 最"可爱"，因为像在看镜头
+          above    正上方单光         → 竖长眼配它显聪明、成熟
+          triple   三个小闪点         → 手绘感、湿润感最强
+          none     不画主光           → 安静、神秘，靠下缘月光提供亮度
+        """
+        s = d.sheen
+        col = rgb_key
+
+        # 高光跟着瞳孔走（光源在环境里，但近距离高光基本随眼球）
+        hx, hy = px_, py_
+
+        if d.hi_style == "above":
+            r = prx * 0.34
+            dl.add(Ellipse(hx, hy - pry * 0.52, r, r, mood=col(s)))
+            dl.add(Ellipse(hx + prx * 0.30, hy + pry * 0.58,
+                           prx * 0.10, prx * 0.10, mood=col(s)))
+
+        elif d.hi_style == "triple":
+            # 三个大小递减的闪点，沿一条弧排开 —— 手绘感的关键是**不等距、不等大**
+            for i, (fx, fy, fr) in enumerate((
+                (0.30, -0.52, 0.26),
+                (0.55, -0.20, 0.13),
+                (-0.10, 0.55, 0.11),
+            )):
+                r = prx * fr * (1.0 + 0.08 * math.sin(inner_rot * 2.0 + i))
+                dl.add(Ellipse(hx + prx * fx, hy + pry * fy, r, r, mood=col(s)))
+
+        elif d.hi_style == "none":
+            # 没有主光：只留一点点眼角反光，避免整只眼"死黑"
+            dl.add(Ellipse(hx - prx * 0.42, hy - pry * 0.44,
+                           prx * 0.10, prx * 0.10,
+                           mood=col(mix_rgb(s, d.iris_inner, 0.55))))
+
+        else:   # classic
+            r = prx * 0.30
+            dl.add(Ellipse(hx + prx * 0.34, hy - pry * 0.44, r, r, mood=col(s)))
+            dl.add(Ellipse(hx + prx * 0.06, hy + pry * 0.56,
+                           prx * 0.13, prx * 0.13, mood=col(s)))
 
 #: 辅助色：颊红晕、共振心形
 _BLUSH = (255, 138, 160)
@@ -1350,7 +1424,7 @@ SHAPE_N = 64
 SHAPES = ("round", "star", "heart", "cat", "squint", "wave", "sparkle")
 
 
-def _star_radius(t: float, points: int = 5, inner: float = 0.42) -> float:
+def _star_radius(t: float, points: int = 5, inner: float = 0.38) -> float:
     """
     五角星。
 
@@ -1359,7 +1433,7 @@ def _star_radius(t: float, points: int = 5, inner: float = 0.42) -> float:
     """
     # 从"正上方"算起的角度
     a = t + math.pi / 2.0
-    k = abs(math.cos(points * 0.5 * a)) ** 1.9   # 指数越大尖越尖
+    k = abs(math.cos(points * 0.5 * a)) ** 2.6   # 指数越大尖越尖
     return inner + (1.0 - inner) * k
 
 
@@ -1458,6 +1532,20 @@ def _profile(name: str) -> List[Tuple[float, float]]:
     if name not in SHAPE_CACHE:
         SHAPE_CACHE[name] = shape_profile(name)
     return SHAPE_CACHE[name]
+
+
+#: 眼型 → (横向系数, 竖向系数)。只改椭圆长短轴，便宜、Arduino 好移植。
+SCLERA_DIMS = {
+    "round":  (1.00, 1.00),
+    "tall":   (0.86, 1.16),
+    "wide":   (1.12, 0.90),
+    "almond": (1.10, 0.86),
+}
+
+
+def sclera_dims(shape: str, rx: float, ry: float) -> Tuple[float, float]:
+    sx, sy = SCLERA_DIMS.get(shape, (1.0, 1.0))
+    return rx * sx, ry * sy
 
 
 def shape_polygon(name: str, cx: float, cy: float, rx: float, ry: float,
@@ -1567,7 +1655,7 @@ def _draw_sparkles(dl: DrawList, hype: float, clock: float, seed: int) -> None:
         rr = 0.58 + r0 * phase
         cx = math.cos(a0) * rr
         cy = math.sin(a0) * rr * 0.96
-        base = 0.070 if big else 0.036
+        base = 0.042 if big else 0.021
         # 淡入淡出：两端小、中间大，不会突然出现/消失
         env = math.sin(math.pi * phase) ** 0.6
         size = base * env * hype
