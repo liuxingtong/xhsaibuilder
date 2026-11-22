@@ -214,6 +214,38 @@ def _norm_key(event) -> str:
     return k.lower()
 
 
+def _check_tk() -> None:
+    """
+    macOS 上系统自带的 Tk 8.5.9 画不出 Canvas —— 窗口会是一片空白。
+
+    这是 Apple 内置 Python 的已知问题（Tk 8.5 在老系统上的绘制路径已经坏了），
+    和我们自己的绘制代码无关。表现很迷惑：Canvas 里的图元数据全都对，
+    find_all() 能列出来、颜色也对，但屏幕上就是什么都不显示。
+
+    所以这里直接挡掉，让人一眼知道该换解释器，而不是去怀疑动画代码。
+    """
+    try:
+        import tkinter as tk
+        probe = tk.Tk()
+        patch = probe.tk.call("info", "patchlevel")
+        probe.destroy()
+    except Exception:
+        return   # 拿不到版本就算了，不拦
+
+    try:
+        major = int(str(patch).split(".")[0])
+    except ValueError:
+        return
+    if major < 9:
+        sys.stderr.write(
+            f"\n  ⚠️  当前 Tk 版本是 {patch}，在 macOS 上可能画不出画面（窗口一片空白）。\n"
+            f"     这不是动画代码的问题 —— Canvas 里的图元都是对的，只是 Tk 8.5 不渲染。\n\n"
+            f"     用 Tk 9 的 Python 跑就行：\n"
+            f"       ~/.local/bin/python3.12 eyes_sim.py --showcase\n\n"
+            f"     如果一定要用现在的解释器，就先装一个带新 Tk 的 Python。\n\n"
+        )
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="圆屏眼睛原型模拟器")
     ap.add_argument("--size", type=int, default=ec.SCREEN,
@@ -224,6 +256,7 @@ def main(argv=None) -> int:
                     help="启动即轮播全部眼睛设计")
     args = ap.parse_args(argv)
 
+    _check_tk()
     ec.SCREEN = args.size
 
     root = tk.Tk()
