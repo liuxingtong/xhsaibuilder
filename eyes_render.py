@@ -31,6 +31,12 @@ LID = (12, 16, 28)          # 眼皮：比黑屏略亮，能看出盖住的形�
 SPARK = (255, 226, 120)
 SPARK2 = (140, 220, 255)
 
+# 双人共振的光环颜色：暖金
+BOND_RING = (255, 226, 150)
+
+# 共振时的心形颜色：暖粉
+HEART = (255, 156, 176)
+
 # 屏幕背景（深色，模拟圆屏关机时的黑底带一点蓝）
 BG_TOP = (14, 18, 30)
 BG_BOT = (6, 8, 14)
@@ -136,6 +142,23 @@ class TkRenderer:
                 flat.extend((self.px(x), self.px(y)))
             self.canvas.create_polygon(flat, fill=hex_color(LID), outline="", tags=tag)
 
+        elif kind == "bond_heart":
+            _, pts = item
+            flat = []
+            for x, y in pts:
+                flat.extend((self.px(x), self.px(y)))
+            self.canvas.create_polygon(flat, fill=hex_color(HEART), outline="", tags=tag)
+
+        elif kind == "bond_ring":
+            _, pts, alpha = item
+            col = tuple(int(BG_TOP[i] + (BOND_RING[i] - BG_TOP[i]) * alpha) for i in range(3))
+            flat = []
+            for x, y in pts:
+                flat.extend((self.px(x), self.px(y)))
+            # 光环用描边多边形，比填充更有"扩散"感
+            self.canvas.create_polygon(flat, fill="", outline=hex_color(col),
+                                       width=max(1, int(self.r * 0.012)), tags=tag)
+
         elif kind == "spark":
             _, cx, cy, size, ang, phase = item
             col = SPARK if (phase % 0.5) < 0.25 else SPARK2
@@ -222,6 +245,14 @@ class PillowRenderer:
         elif kind == "lid":
             _, pts = item
             d.polygon([(self.px(x), self.px(y)) for x, y in pts], fill=LID)
+        elif kind == "bond_heart":
+            _, pts = item
+            d.polygon([(self.px(x), self.px(y)) for x, y in pts], fill=HEART)
+        elif kind == "bond_ring":
+            _, pts, alpha = item
+            col = tuple(int(BG_TOP[i] + (BOND_RING[i] - BG_TOP[i]) * alpha) for i in range(3))
+            d.polygon([(self.px(x), self.px(y)) for x, y in pts], outline=col,
+                      width=max(1, int(self.r * 0.012)))
         elif kind == "spark":
             _, cx, cy, size, ang, phase = item
             col = SPARK if (phase % 0.5) < 0.25 else SPARK2

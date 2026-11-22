@@ -1,157 +1,256 @@
-# Duetto — 桌面听歌搭子（表情原型）
+# Duetto — 桌面听歌搭子的表情原型
 
 把听歌时的敲击与手势，变成桌面上一个有反应的活物。
 
-硬件还没打样，先用 Python 把交互和形象调好，代码按"可直译成 Arduino"的方式组织。
-
-**全程纯代码绘制，不加载任何图片。**
+硬件还没打样，先用 Python 把交互调好；**代码按「可原样搬进 Arduino」的方式组织**，并且已经带了单机测双人的联调工具。
 
 ---
 
-## 两个版本
+## 30 秒上手
 
-| 版本 | 命令 | 说明 |
-|---|---|---|
-| **小猫头鹰**（形象版） | `python3 duetto_sim.py` | 带外圈灯带，模拟双人视界 |
-| 抽象眼睛（几何版） | `python3 eyes_sim.py` | 最早的原型，纯眼睛 |
-
-两个版本共用同一套动画状态机 `eyes_core.py`，只是渲染层不同。
-
-## 按键
-
-| 交互 | 按键 | 猫头鹰的反应 |
-|---|---|---|
-| 轻敲 | `F` / `Space` / `←` | 眯眼点头，眉羽微扬 |
-| 重击 | `J` / `Enter` / `→` | 沉得更低、眉羽压低、眼睛瞪大 |
-| 9 宫格 | `T Y U` / `G H J` / `B N M` | **整只鸟转头**（不是转眼）+ 平移 |
-| 上滑彩蛋 | 1 秒内 `B/N/M` → `G/H/J` → `T/Y/U` | 笑眼、张嘴、星星爆发 |
-| 退出 | `Esc` | |
-
----
-
-## 形象设计：为什么是猫头鹰，眼睛怎么画
-
-设计前先做了竞品调研，完整报告在 [`docs/duetto-eye-design-research.md`](docs/duetto-eye-design-research.md)。几条直接改变了设计的结论：
-
-### 1. 不画「眼白 + 瞳孔」，画实心发光块
-
-Cozmo 和 Vector 都是单色填充形状，Anki 直接把 Eve 的眼睛搬过来。**小屏上画眼白会立刻显脏、显小**。所以猫头鹰的眼睛是两块实心琥珀色，没有眼白、没有瞳圈、没有高光点。
-
-### 2. 猫头鹰的眼睛不能转，所以滑动是「转头」
-
-真实猫头鹰的眼球固定在眼窝里，只能转头。这反而帮了忙——**舵机有了存在理由**：
-
-- 左右滑动 → `head_x` 平移 + `head_tilt` 旋转（整张脸一起动）
-- 屏幕上不画瞳孔位移，眼睛本身不动
-
-### 3. 一次只动一条边
-
-`eye_shape()` 里三个独立通道，不同时变形：
-
-| 通道 | 效果 | 用于 |
-|---|---|---|
-| `eye_open` | 上缘高度 | 眯眼 / 瞪大 / 眨眼 |
-| `smile` | 上缘中段上凸 | 笑眼 |
-| `angry` | 上缘整体倾斜 | 专注 / 生气 |
-
-### 4. 猫头鹰靠三样东西立住
-
-- **面盘**：带心形凹口的浅色区域，最标志性
-- **眉羽**：3 根由粗到细的羽片叠出层次。用一条实心线会读成人类的眉毛
-- **喙**：倒三角，把两只眼睛连成一张脸
-
-眼距约 1.3 倍眼宽（调研建议 0.6–0.8 倍间隙），比人的眼睛更宽更靠上。
-
-### 5. 配色
-
-| 用途 | 值 |
-|---|---|
-| 屏幕底 | `#14100C` 暖褐黑 |
-| 眼睛 | `#FFD98A` 琥珀 |
-| 眉羽 | `#6C543E` |
-| 喙 | `#E29646` |
-| 灯带（我） | `#FFB86B` 暖 |
-| 灯带（对方） | `#6FD3FF` 冷 |
-
----
-
-## 双人视界（核心差异点）
-
-调研里**没有在竞品中发现同类做法**：灯带左右各 12 颗独立寻址，左边是「我」，右边是「对方」。
-
-| 状态 | 灯带 |
-|---|---|
-| 待机 | 左右同色暖白（当作"面盘"） |
-| 看向左侧 | 左暖亮 + 右冷暗 |
-| 看向右侧 | 左冷暗 + 右暖亮 |
-| 彩蛋 | 左右融为一体（暖黄高亮） |
-
-`duetto_states.light_for()` 算颜色。屏幕和灯带是**两条独立通道**，表情不等灯带和舵机到位——这是 Disney 研究里 "show channel" 的思路。
-
----
-
-## 文件结构
-
-```
-eyes_core.py            动画状态机（纯标准库，无绘图依赖）
-eyes_render.py          几何版渲染（Tkinter / Pillow）
-eyes_sim.py             几何版模拟器
-
-duetto_owl.py           猫头鹰形象（几何 + 配色）
-duetto_render.py        猫头鹰渲染（Tkinter / Pillow）
-duetto_states.py        状态机 → 猫头鹰参数 + 灯带颜色
-duetto_sim.py           猫头鹰模拟器（带灯带）
-
-render_frames.py        无头预览，导出 GIF / 拼图
-docs/                   竞品调研报告
-arduino/duetto_owl/     猫头鹰 Arduino 版
-arduino/eyes_arduino/   几何版 Arduino 版
+```bash
+python3 duetto_duo.py --mode split     # ★ 双人联调（左右各一台）
+python3 eyes_sim.py                    # 单台眼睛原型
 ```
 
-三层架构，目的是让动画逻辑能原样搬到 Arduino：
+> 需要 Python 3.8+ 与 Tkinter（macOS 自带；Linux 装 `python3-tk`）。
+> 无窗口环境想看效果：`python3 render_frames.py`（依赖 Pillow）。
+
+## 按键（双人模式）
+
+| | 轻敲 | 重击 | 9 宫格 |
+|---|---|---|---|
+| **左屏（我）** | `F` | `空格` | `QWE` / `ASD` / `ZXC` |
+| **右屏（对方）** | `K` | `回车` | `UIO` / `JKL` / `M,.` |
+
+**两只手先后各敲一下（相差 0.3s 内）→ 中间触发共振，两屏同时变成心形。**
+
+单机版的 9 宫格换成真实键盘布局 `T Y U / G H J / B N M`。
+
+---
+
+## 一台电脑怎么测双人效果
+
+`EyeStateMachine` 是纯状态对象，没有任何全局状态。所以 **new 两个实例就是两个"人"**：
+
+```python
+sm_a = EyeStateMachine()   # 我
+sm_b = EyeStateMachine()   # 对方
+```
+
+三种模式：
+
+| 模式 | 命令 | 用途 |
+|---|---|---|
+| `split` | `duetto_duo.py --mode split` | 左手/右手各管一台，最接近真实双人 |
+| `ai` | `duetto_duo.py --mode ai --synergy 0.65` | 只操作 A，B 按概率自动跟随（路演单人用） |
+| 回放 | `duo_bridge.py --replay take1.json` | 用固定输入重跑，排除"人的手速"这个变量 |
+
+**这能让你在硬件到位前就调完三件事**：共振判定参数、心形彩蛋的视觉方向、灯带的合并逻辑。
+
+### 共振判定
+
+`duetto_duo.ResonanceJudge` / `duo_bridge.Bridge` 用同一套逻辑：**窗口内两边都出现"激烈情绪"（轻敲/重击/上滑）→ 触发**。
+
+```bash
+duo_bridge.py --window 0.8    # 默认 1.5，实测偏宽松，建议 0.8 起步
+```
+
+> 跑 16 秒模拟，1.5s 窗口触发 3 次、其中一次两边差了 0.37s；收到 0.8s 只触发 2 次，质量更高。真实双人不会差 1.5 秒还算同频。
+
+---
+
+## 双机迁移指南（给 agent 的执行手册）
+
+> 目标：把当前的单机双人联调，换成 **两台硬件 + 一根 USB 线 + 一个 Python 中枢**。
+> 架构来自《Duetto Demo 制作说明》1.1：避开无线配网，两台设备各占一个串口，PC 做桥接。
+
+### Step 0 · 先跑通无硬件链路
+
+**在做任何硬件改动前**，确认 PC 侧逻辑是好的：
+
+```bash
+python3 duo_bridge.py --simulate --record --out take1.json
+python3 duo_bridge.py --replay take1.json
+```
+
+期望：终端打印 `★ 共鸣触发！`，结束后生成 `take1.json`，里面有带毫秒时间戳的事件。
+**这一步失败就不要往下走**——问题在 PC 侧，不在硬件。
+
+### Step 1 · 串口协议（两边必须一致）
+
+波特率 **115200**，行尾 `\n`。
+
+| 方向 | 内容 | 何时发 |
+|---|---|---|
+| 硬件 → PC | `I`（待机）/ `T`（敲击）/ `L`（左滑）/ `R`（右滑）/ `U`（上滑爆发） | 状态**变化时**发一次，或每 100ms 发一次 |
+| PC → 硬件 | `S1` | 进入共振 |
+| PC → 硬件 | `S0` | 退出共振 |
+| PC → 硬件 | `P_X`（X 是对方状态字符） | 每轮状态更新时，用于点亮灯带另一半 |
+
+### Step 2 · 设备端要做的最小改动
+
+**固件侧只需两件事**（其余动画逻辑完全复用现有 `eyes_core` 的移植版）：
+
+1. **上报状态**：把手势识别结果写成一个字符丢进串口。
+   ```cpp
+   void reportState(char s) {
+     if (s == lastReported) return;      // 只在变化时发，省带宽
+     lastReported = s;
+     Serial.print(s); Serial.print('\n');
+   }
+   // 敲击时 reportState('T'); 上滑时 reportState('U'); 松手回中 reportState('I');
+   ```
+
+2. **接收指令**：非阻塞地读串口，遇到 `S1` 就触发共振通道。
+   ```cpp
+   void pollSerial() {
+     if (!Serial.available()) return;
+     static String buf;
+     while (Serial.available()) {
+       char c = Serial.read();
+       if (c == '\n') {
+         if (buf == "S1") sm.triggerBond(+1);   // 邻机在右就传 +1
+         else if (buf == "S0") { /* 让 bond 自然衰减即可 */ }
+         else if (buf.startsWith("P_")) { remoteState = buf.charAt(2); }
+         buf = "";
+       } else if (c != '\r') buf += c;
+     }
+   }
+   ```
+
+   **关键：不能阻塞**。`pollSerial()` 放在主循环里每圈调一次，别用 `while(!Serial.available())`。
+
+### Step 3 · 把 `bond` 通道移植到 Arduino
+
+Python 侧的共振状态在 `eyes_core.py` 的 `EyeStateMachine` 里，是三个字段：
+
+| 字段 | 含义 |
+|---|---|
+| `bond` | 0..1 强度 |
+| `bond_t` | 已持续时长 |
+| `bond_side` | -1 邻机在左 / +1 邻机在右 / 0 居中 |
+| `bond_len` | 总时长（默认 3.5s） |
+
+对应 Arduino 实现（加到你的状态结构体里）：
+
+```cpp
+struct { float bond = 0, bondT = 0; int bondSide = 0; const float BOND_LEN = 3.5f; } bondState;
+
+void triggerBond(int side) { bondState.bond = 1.0f; bondState.bondT = 0; bondState.bondSide = side; }
+
+// 在 updateState(dt) 里
+if (bondState.bond > 0) {
+  bondState.bondT += dt;
+  if (bondState.bondT >= bondState.BOND_LEN) { bondState.bond = 0; bondState.bondSide = 0; }
+}
+```
+
+**渲染侧**（比 Python 简单，因为不需要平滑插值）：
+
+```cpp
+// 共振时直接画心形，跳过瞳孔
+if (bondEnv > 0.03f) {
+  drawHeart(ecx, ecy, erx * 1.0f, ery * 1.05f);   // 心形填充
+  continue;
+}
+```
+
+心形用极坐标曲线采样填多边形，或（更省事）用两个圆 + 一个旋转 45° 的方块拼：
+
+```cpp
+void drawHeart(int cx, int cy, int r) {
+  spr.fillCircle(cx - r/2, cy - r/3, r*0.62, C_HEART);   // 左瓣
+  spr.fillCircle(cx + r/2, cy - r/3, r*0.62, C_HEART);   // 右瓣
+  // 下半部用三角形收尖
+  spr.fillTriangle(cx - r*1.06, cy, cx + r*1.06, cy, cx, cy + r*1.25, C_HEART);
+}
+```
+
+### Step 4 · 接线要点（来自《制作说明》第二节）
+
+副机（ESP32）推荐分配：
+
+| 外设 | 引脚 |
+|---|---|
+| MPU6050 + MPR121（I2C 并联） | SDA=21, SCL=22，`Wire.setClock(400000)` |
+| 灯带 DIN | GPIO25 |
+| 舵机 PWM | GPIO26（避开 SPI 的 18） |
+
+> 供电红线：**舵机和灯带接 5V/VIN，绝不接 3.3V**，否则舵机一转屏幕就黑屏重启。所有 GND 共地。
+
+### Step 5 · 验收
+
+- [ ] `--simulate` 能触发共鸣（无硬件）
+- [ ] 单机插上后，串口能收到 `I/T/L/R/U`
+- [ ] 两台同时插上，PC 能分别识别两个端口（`duo_bridge.py --list`）
+- [ ] 两人同时敲击 → 两台屏幕同时变心形 + 灯带合并（`S1`）
+- [ ] 只动一台 → 另一台灯带的**另一半**显示对方颜色（`P_X`）
+
+---
+
+## 代码结构
+
+```
+eyes_core.py        动画状态机（纯标准库，零绘图依赖）
+  ├── tap(kind)              轻敲 / 重击
+  ├── press_grid(key)        9 宫格
+  ├── trigger_hype()         上滑彩蛋
+  ├── trigger_bond(side)     ★ 双人共振
+  ├── update(dt)             推进时间
+  └── build_frame()          产出绘制指令
+
+eyes_render.py      绘制指令 → Tkinter / Pillow（= Arduino GFX 对照表）
+eyes_sim.py         单台模拟器
+
+duetto_duo.py       ★ 一台电脑模拟两台设备
+duo_bridge.py       ★ 双机串口中枢（含 --simulate 无硬件模式）
+render_frames.py    无头预览，导出 GIF
+
+arduino/eyes_arduino/   Arduino 移植（含迁移对照表）
+archive/owl/            早期小猫头鹰形象，已存档，可独立运行
+docs/                   调研与设计文档
+```
+
+### 三层架构的意义
 
 ```
 输入（键盘 / 按钮 / 触摸焊盘）
    ↓
 eyes_core.EyeStateMachine     只有浮点数，update(dt) + build_frame()
-   ↓  duetto_states  ← 适配层（几何版跳过这一层）
-duetto_owl.OwlParams          一帧的形象参数
-   ↓
-duetto_render                  Tkinter | Pillow | Arduino GFX
+   ↓  DrawList
+eyes_render                    Tkinter | Pillow | Arduino GFX
 ```
 
-坐标全部归一化到 **-1..1**（原点居中、半径 1 = 屏幕半径），换分辨率只改 `SCREEN`。
+`eyes_core.py` **一个绘图库都不 import**，时间由外部 `update(dt)` 喂进来。所以同一份状态机可以原样跑在 Python 和 C++ 上。
+
+坐标全部归一化到 **-1..1**（原点屏幕中心，y 向下，半径 1 = 屏幕半径），换 128/240/454 分辨率只改 `SCREEN` 常量。
 
 ---
 
-## 无头预览（不开窗口看效果）
+## 绘制指令清单（移植时照这个写）
 
-```bash
-python3 render_frames.py            # 几何版 GIF
-python3 preview_all.py              # 猫头鹰版 GIF + 对照图
-```
+`build_frame()` 返回的 `DrawList` 里只有这些图元：
 
-依赖 Pillow。适合没有显示器的环境，或者想直接发图给人看。
+| 图元 | 内容 | Tkinter / GFX 对应 |
+|---|---|---|
+| `Ellipse` | 眼白，(cx, cy, rx, ry) | `create_oval` / `fillEllipse` |
+| `('pupil', cx, cy, rx, ry)` | 瞳孔 | `fillEllipse` |
+| `('glint', cx, cy, rx, ry)` | 高光点 | `fillCircle` |
+| `('lid', pts)` | 眼皮多边形 | `create_polygon` / 逐列 `fillRect` |
+| `('spark', cx, cy, size, ang, phase)` | 彩蛋星星 | 小四角星 / `fillCircle` |
+| `('bond_heart', pts)` | ★ 共振心形 | `fillPoly` 或 两圆 + 三角 |
+| `('bond_ring', pts, alpha)` | ★ 共振光环 | 描边多边形 / 空心圆 |
 
----
+时间参数（已按调研建议校准，无需再调）：
 
-## Arduino
-
-已装好：
-
-- **Arduino IDE 2.2.0** — `/Applications/Arduino IDE.app`
-- **arduino-cli 1.6.0** — `~/bin/arduino-cli`（可命令行编译验证）
-
-代码在 [`arduino/duetto_owl/duetto_owl.ino`](arduino/duetto_owl/duetto_owl.ino)，逻辑与 Python 版逐行对应，文件末尾有对照表。
-
-硬件建议：
-
-- **屏幕**：GC9A01 240×240 圆形 IPS
-- **主控**：ESP32-S3（RP2040 也能跑，但更慢）
-- **灯带**：WS2812B × 24（左右各 12）
-- **舵机**：SG90 / MG90S，左右摆头
-
-> ⚠️ **帧率是硬约束**：Adafruit 用同一块 GC9A01A 实测，ESP32-S3 画**双眼只有约 20 FPS**（单眼 39 FPS）。所以代码按 20 FPS 设计，单次动作控制在 8 帧内。提速建议见 .ino 文件末尾。
+| 动作 | 时长 | 备注 |
+|---|---|---|
+| 眨眼 | 160ms | 随机 2.4–6.5s 一次 |
+| 轻敲 | 380ms | 下沉 0.26，回弹 42% |
+| 重击 | 800ms | 下沉 0.40，回弹 75% + 左右晃 |
+| 上滑彩蛋 | 2.6s | 星星爆发 |
+| **共振** | **3.5s** | 心形 + 光环 + 灯带合并 |
 
 ---
 
@@ -159,9 +258,17 @@ python3 preview_all.py              # 猫头鹰版 GIF + 对照图
 
 | 位置 | 作用 |
 |---|---|
-| `eyes_core.py` 的 `LIGHT_TAP` / `HEAVY_TAP` | 敲击的时长、下沉、压扁、回弹 |
-| `eyes_core.py` 的 `SwipeDetector.window` | 上滑判定时间窗口 |
-| `duetto_owl.py` 的 `OwlParams` | 眼睛大小、眼距、眉羽 |
-| `duetto_owl.py` 的 `eye_shape()` | 眼睛的形变规则 |
-| `duetto_states.py` 的 `state_to_owl()` | 状态机 → 表情的映射强度 |
-| `duetto_states.py` 的 `light_for()` | 灯带颜色逻辑 |
+| `eyes_core.py` 的 `LIGHT_TAP` / `HEAVY_TAP` | 敲击力度、时长、回弹 |
+| `eyes_core.py` 的 `SwipeDetector.window` | 上滑判定窗口（1.0s） |
+| `EyeStateMachine.bond_len` | 共振持续时长 |
+| `duetto_duo.ResonanceJudge(window=...)` | 共振判定窗口 |
+| `duetto_duo.light_for()` | 灯带左右分区颜色 |
+| `eyes_render.BOND_RING` / `HEART` | 共振光环 / 心形颜色 |
+
+---
+
+## 已知限制
+
+- **ESP32 核心的编译验证尚未完成**（见下）。`arduino/eyes_arduino/` 里是几何版移植，逻辑与 Python 一致但未实测。
+- **帧率硬约束**：Adafruit 用同一块 GC9A01A 实测，ESP32-S3 画**双眼约 20 FPS**（单眼 39 FPS）。按 20 FPS 设计。
+- **共振的双向灯带只在 PC 侧模拟**。真机上「对方状态画到自己灯带另一半」需要固件实现 `P_X` 解析，见 Step 2。

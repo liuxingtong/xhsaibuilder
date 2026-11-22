@@ -318,6 +318,14 @@ class EyeStateMachine:
     idle_look_y: float = 0.0
     idle_next: float = 2.5
 
+    # 双人共振（由外部判定后写入，不是自己触发的）
+    # 这是"两个人"层面的状态，单机看不到，所以单独一个通道，
+    # 不混进 hype（hype 是自己的上滑彩蛋）。
+    bond: float = 0.0          # 0..1 共振强度
+    bond_t: float = 0.0
+    bond_side: int = 0         # -1 看向左邻机 / +1 看向右邻机 / 0 居中
+    bond_len: float = 3.5
+
     detector: SwipeDetector = field(default_factory=SwipeDetector)
 
     # ---- 输入 -------------------------------------------------------------
@@ -362,6 +370,17 @@ class EyeStateMachine:
         """松开所有 9 宫格键 → 回到中间。"""
         self.target_col, self.target_row = 0, 0
 
+    def trigger_bond(self, side: int = 0) -> None:
+        """
+        触发双人共振。
+
+        side: 邻机在屏幕的哪一侧（-1 左 / +1 右），决定眼睛往哪边偏，
+              形成"互相看着对方"的效果。
+        """
+        self.bond = 1.0
+        self.bond_t = 0.0
+        self.bond_side = side
+
     def trigger_hype(self) -> None:
         self.hype = 1.0
         self.hype_t = 0.0
@@ -403,6 +422,14 @@ class EyeStateMachine:
             if self.hype_t >= self.hype_len:
                 self.hype = 0.0
                 self.hype_t = 0.0
+
+        # 共振衰减
+        if self.bond > 0.0:
+            self.bond_t += dt
+            if self.bond_t >= self.bond_len:
+                self.bond = 0.0
+                self.bond_t = 0.0
+                self.bond_side = 0
 
         # 待机微瞟
         self.idle_next -= dt
@@ -477,6 +504,14 @@ class EyeStateMachine:
         dip, squash, pop, wobble = self._tap_channels()
         blink = self._blink_amount()
         hype = self.hype
+        bond = self.bond
+
+        # 共振包络：前 0.25s 冲上去，之后缓慢回落
+        if bond > 0.0:
+            bp = clamp(self.bond_t / self.bond_len, 0.0, 1.0)
+            bond_env = bond * (1.0 - ease_in_out_sine(clamp((bp - 0.25) / 0.75, 0, 1)) * 0.55)
+        else:
+            bond_env = 0.0
 
         # 上滑彩蛋对整体姿态的叠加
         hype_pulse = 1.0
@@ -489,6 +524,10 @@ class EyeStateMachine:
         base_y = row_f * ROW_SHIFT
         if hype > 0.0:
             base_y += math.sin(self.clock * 9.0) * 0.045 * hype
+        if bond_env > 0.0:
+            # 上浮 + 轻快的上下跳动
+            base_y -= 0.055 * bond_env
+            base_y += math.sin(self.clock * 7.0) * 0.022 * bond_env
         center_y = base_y + dip
 
         # 眼睛的水平中心：左右位置主要由「两眼中心整体平移」表达，
@@ -496,11 +535,13 @@ class EyeStateMachine:
         eye_dx = col_f * EYE_PAN_X
         eye_dx += self.idle_look_x * (1.0 - abs(col_f))
         eye_dx += wobble
+        # 共振：整对眼睛往邻机方向偏，形成"对望"
+        eye_dx += self.bond_side * 0.085 * bond_env
 
         # 两眼间距与尺寸
-        spread = 0.255 * style["spread"]
-        eye_rx = 0.132 * style["stretch"] * (1.0 + 0.26 * hype)
-        eye_ry = 0.186 * style["openness"] * pop * (1.0 + 0.38 * hype)
+        spread = 0.255 * style["spread"] * (1.0 + 0.06 * bond_env)   # 心形更宽，间距略放开
+        eye_rx = 0.132 * style["stretch"] * (1.0 + 0.26 * hype + 0.55 * bond_env)
+        eye_ry = 0.186 * style["openness"] * pop * (1.0 + 0.38 * hype + 0.55 * bond_env)
 
         # 眨眼 + 敲击压扁合并
         squash_total = clamp(squash + blink, 0.0, 0.98)
@@ -518,7 +559,11 @@ class EyeStateMachine:
             near = 1.0 if side * col_f > 0 else 0.0
             size_k = 1.0 + (0.12 * near - 0.07 * (1 - near)) * abs(col_f)
             self._draw_eye(dl, cx, cy, eye_rx * size_k, eye_ry * size_k, side,
-                           style, pop, squash_total, hype, tilt)
+                           style, pop, squash_total, hype, tilt,
+                           bond_env=bond_env, bond_side=self.bond_side)
+
+        if bond_env > 0.01:
+            _draw_bond_ring(dl, bond_env, self.clock, eye_dx, center_y)
 
         if hype > 0.0:
             _draw_sparkles(dl, hype, self.clock, self.sparkle_seed)
@@ -528,7 +573,21 @@ class EyeStateMachine:
     # 眼睛本体
     def _draw_eye(self, dl: DrawList, cx: float, cy: float, rx: float, ry: float,
                   side: int, style: dict, pop: float, squash: float,
-                  hype: float, tilt: float) -> None:
+                  hype: float, tilt: float, bond_env: float = 0.0,
+                  bond_side: int = 0) -> None:
+        # 共振：眼睛直接变成心形（最醒目、最不会看错的表情）
+        if bond_env > 0.03:
+            k = clamp(bond_env, 0.0, 1.0)
+            # 从普通眼睛形状平滑过渡到心：用圆 ↔ 心的插值
+            circle = ellipse_polygon(cx, cy, rx * 1.06, ry * 1.06, 40)
+            # 心形比椭圆宽，横向收窄一点，避免两个心粘在一起
+            heart = _heart_poly(cx, cy + ry * 0.02, rx * 0.98, ry * 1.02, 40)
+            blended = [(lerp(circle[i][0], heart[i][0], k),
+                        lerp(circle[i][1], heart[i][1], k))
+                       for i in range(40)]
+            dl.add(("bond_heart", blended))
+            return   # 心形期间不再画瞳孔等细节
+
         # 1) 眼白（浅色底，让眼睛在黑屏上有体积）
         dl.add(Ellipse(cx, cy, rx * 1.06, ry * 1.06))
 
@@ -602,6 +661,47 @@ def _blend_style(col_f: float, row_f: float) -> dict:
     rt = ease_in_out_sine(rt)
     out["openness"] *= lerp(ra["openness"], rb["openness"], rt)
     return out
+
+
+def _heart_poly(cx: float, cy: float, rx: float, ry: float,
+                n: int = 40) -> List[Tuple[float, float]]:
+    """
+    心形轮廓（共振时眼睛变成心）。
+
+    用经典极坐标心形曲线：
+        x = 16 sin^3(t)
+        y = -(13 cos t - 5 cos2t - 2 cos3t - cos4t)
+    归一化到约 ±1，再乘 rx/ry。y 轴向下，所以整体不翻转。
+    """
+    pts: List[Tuple[float, float]] = []
+    for i in range(n):
+        t = 2.0 * math.pi * i / n
+        hx = 16.0 * math.sin(t) ** 3
+        hy = -(13.0 * math.cos(t) - 5.0 * math.cos(2 * t)
+               - 2.0 * math.cos(3 * t) - math.cos(4 * t))
+        # 心形曲线的自然范围约 ±17 / ±17（上下略不对称），统一缩放到 ±1
+        pts.append((cx + rx * (hx / 17.0), cy + ry * (hy / 17.0)))
+    return pts
+
+
+def _draw_bond_ring(dl: DrawList, amount: float, clock: float,
+                    cx: float, cy: float) -> None:
+    """
+    共振光环：从眼睛中心向四周扩散的两道同心环。
+    用多边形拼（Arduino 上可以用 fillCircle 叠画）。
+    """
+    for k in (0, 1):
+        phase = (clock * 0.9 + k * 0.5) % 1.0
+        r = 0.46 + 0.50 * phase
+        alpha = (1.0 - phase) * amount
+        if alpha < 0.05:
+            continue
+        ring_pts = []
+        n = 40
+        for i in range(n):
+            a = 2.0 * math.pi * i / n
+            ring_pts.append((cx + r * math.cos(a), cy + r * math.sin(a) * 0.92))
+        dl.add(("bond_ring", ring_pts, alpha))
 
 
 def _draw_sparkles(dl: DrawList, hype: float, clock: float, seed: int) -> None:

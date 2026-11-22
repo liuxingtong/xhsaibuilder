@@ -10,6 +10,8 @@ duetto_render.py — Duetto 猫头鹰形象渲染器（Pillow / Tkinter 通用�
 
 from __future__ import annotations
 
+import _bootstrap  # noqa: F401  (把仓库根目录加进 sys.path)
+
 import math
 
 from eyes_core import clamp

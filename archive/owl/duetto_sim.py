@@ -13,6 +13,8 @@ duetto_sim.py — Duetto 猫头鹰形象模拟器（Tkinter）
 
 from __future__ import annotations
 
+import _bootstrap  # noqa: F401  (把仓库根目录加进 sys.path)
+
 import argparse
 import sys
 import time

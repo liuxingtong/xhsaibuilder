@@ -17,6 +17,8 @@ duetto_states.py — 把 eyes_core 的交互状态翻译成猫头鹰的表情参
 
 from __future__ import annotations
 
+import _bootstrap  # noqa: F401  (把仓库根目录加进 sys.path)
+
 from duetto_owl import OwlParams
 from eyes_core import EyeStateMachine, clamp, lerp
 

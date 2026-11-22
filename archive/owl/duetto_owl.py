@@ -23,6 +23,8 @@ duetto_owl.py — Duetto「小猫头鹰」形象原型
 
 from __future__ import annotations
 
+import _bootstrap  # noqa: F401  (把仓库根目录加进 sys.path)
+
 import math
 from dataclasses import dataclass
 from typing import List, Tuple

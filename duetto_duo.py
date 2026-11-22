@@ -48,9 +48,7 @@ import time
 import tkinter as tk
 
 import eyes_core as ec
-from duetto_owl import build_owl_frame
-from duetto_render import OwlTkRenderer, hexc
-from duetto_states import light_for, state_to_owl
+from eyes_render import TkRenderer, hex_color as hexc
 from eyes_core import EyeStateMachine
 
 # ---------------------------------------------------------------------------
@@ -90,6 +88,52 @@ def key_to_action(keys: dict, k: str):
     if k in keys["grid"]:
         return ("grid", keys["grid"][k])
     return (None, None)
+
+
+# ---------------------------------------------------------------------------
+# 灯带颜色
+# ---------------------------------------------------------------------------
+
+LIGHT_IDLE = (255, 196, 107)     # 暖白（待机时当"面盘"）
+LIGHT_TAP = (255, 214, 140)
+LIGHT_TAP_HEAVY = (255, 170, 80)
+LIGHT_MINE = (255, 184, 107)     # 我这边：暖
+LIGHT_THEIRS = (111, 211, 255)   # 对方：冷
+LIGHT_BOND = (255, 236, 170)
+
+
+def _dim(c, k):
+    return (int(c[0] * k), int(c[1] * k), int(c[2] * k))
+
+
+def light_for(sm: EyeStateMachine, side: int = 0):
+    """
+    返回 (左半, 右半) 两个颜色。
+
+    side: 本机相对邻机的位置（-1=邻机在左 / +1=邻机在右）。
+          看向邻机方向的那一侧要点亮成"对方色"，制造双人视界。
+    """
+    # 共振优先
+    if sm.bond > 0.05:
+        return (LIGHT_BOND, LIGHT_BOND)
+
+    dip, _, _, _ = sm._tap_channels()
+    if sm.tap_ev is not None and dip > 0.02:
+        c = LIGHT_TAP_HEAVY if sm.last_tap_kind == ec.HEAVY else LIGHT_TAP
+        return (c, c)
+
+    # 看的方向决定哪半边亮
+    col = sm.pos_col
+    if col < -0.15:
+        return (LIGHT_MINE, _dim(LIGHT_THEIRS, 0.30))
+    if col > 0.15:
+        return (_dim(LIGHT_MINE, 0.30), LIGHT_THEIRS)
+    if side < 0:
+        # 邻机在左 → 左半偏冷（对方色）
+        return (_dim(LIGHT_THEIRS, 0.55), LIGHT_MINE)
+    if side > 0:
+        return (LIGHT_MINE, _dim(LIGHT_THEIRS, 0.55))
+    return (LIGHT_IDLE, LIGHT_IDLE)
 
 
 # ---------------------------------------------------------------------------
@@ -230,8 +274,8 @@ class DuoApp:
                                justify="left")
         self.status.pack(fill="x", padx=20, pady=(4, 12))
 
-        self.renderer_a = OwlTkRenderer(self.cv_a, DEV_PX)
-        self.renderer_b = OwlTkRenderer(self.cv_b, DEV_PX)
+        self.renderer_a = TkRenderer(self.cv_a, DEV_PX)
+        self.renderer_b = TkRenderer(self.cv_b, DEV_PX)
 
         root.bind("<KeyPress>", self.on_press)
         root.bind("<KeyRelease>", self.on_release)
@@ -323,18 +367,21 @@ class DuoApp:
 
         resonant = self.judge.update(t)
 
+        # 共振刚触发：让两台设备各自进入 bond 状态
+        if resonant and not self.was_resonant:
+            self.sm_a.trigger_bond(side=+1)   # A 在左，看向右邻机
+            self.sm_b.trigger_bond(side=-1)   # B 在右，看向左邻机
+
         # 共鸣时两台灯带融为一体
         if resonant:
-            la = [ (255, 236, 170) ] * 2
+            la = ((255, 236, 170), (255, 236, 170))
             lb = la
         else:
-            la = light_for(self.sm_a)
-            lb = light_for(self.sm_b)
+            la = light_for(self.sm_a, side=+1)
+            lb = light_for(self.sm_b, side=-1)
 
-        self._render_device("A", self.sm_a, self.renderer_a, self.cv_a, la,
-                            resonant, look_shift=+1)
-        self._render_device("B", self.sm_b, self.renderer_b, self.cv_b, lb,
-                            resonant, look_shift=-1)
+        self._render_device("A", self.sm_a, self.cv_a, la, resonant)
+        self._render_device("B", self.sm_b, self.cv_b, lb, resonant)
 
         self._update_status(resonant, t)
         self.judge.note_end(t, resonant, self.was_resonant)
@@ -342,16 +389,10 @@ class DuoApp:
 
         self.root.after(8, self.tick)
 
-    def _render_device(self, tag: str, sm: EyeStateMachine, renderer,
-                       cv, colors, resonant: bool, look_shift: int) -> None:
-        p = state_to_owl(sm)
-        if resonant:
-            # 对视彩蛋：两台互相看向对方 + 笑眼
-            # look_shift: A 机在左，往右看(+1)；B 机在右，往左看(-1)
-            p.head_x += look_shift * 0.085
-            p.head_tilt = look_shift * 7.0
-            p.smile = max(p.smile, 0.85)
-        renderer.render(build_owl_frame(p))
+    def _render_device(self, tag: str, sm: EyeStateMachine, cv, colors,
+                       resonant: bool) -> None:
+        renderer = self.renderer_a if tag == "A" else self.renderer_b
+        renderer.render(sm.build_frame())
         self._draw_ring(cv.master, tag, colors)
 
     def _draw_ring(self, canvas, tag: str, colors) -> None:
