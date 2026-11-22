@@ -61,14 +61,14 @@ static const int SERVO_CENTER = 90;
 // 配色（RGB565）—— 对应 duetto_owl.py
 // ===========================================================================
 
-#define C_BG        0x1061   // 暖褐黑 #14100C
-#define C_DISC      0x39A4   // 面盘暗部 #3A2D22
-#define C_EYE       0xFE71   // 琥珀 #FFD98A
-#define C_BROW      0x6C2B   // 眉羽 #6C543E
-#define C_BROWSHADE 0x59A5
-#define C_BEAK      0xE4AC   // #E29646
-#define C_BEAKDARK  0xAA6E   // #AA682C
-#define C_MOUTH     0x2942   // 口腔深色 #341E12
+#define C_BG        0x0841   // #0C0A08  暖褐黑
+#define C_DISC      0x5A46   // #5E4A36  面盘（对比度 2.36:1，原配色 1.42 几乎看不见）
+#define C_EYE       0xFED1   // #FFD98A  琥珀，全场唯一高亮
+#define C_BROW      0x7B09   // #7C634A  眉羽，只比面盘略深，不抢眼睛
+#define C_BROWSHADE 0x6A48   // 略深一档
+#define C_BEAK      0xC449   // #C08A4E  喙，低饱和，明度明显低于眼睛
+#define C_BEAKDARK  0x8B07   // #8A6338
+#define C_MOUTH     0x30E2   // #341E12  口腔深色
 
 // ===========================================================================
 // 缓动 / 弹簧
@@ -195,7 +195,7 @@ State S;
 struct OwlParams {
   float headX = 0, headY = 0, headTilt = 0;
   float eyeRx = 0.185f, eyeRy = 0.225f;
-  float eyeOpen = 1.0f, eyeGap = 1.0f;
+  float eyeOpen = 1.0f, eyeGap = 0.85f;
   float smile = 0, angry = 0;
   float browLift = 0, browAsym = 0, browFlare = 0;
   float beakOpen = 0;
