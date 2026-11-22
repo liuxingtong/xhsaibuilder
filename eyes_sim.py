@@ -10,9 +10,11 @@ eyes_sim.py — 1.24 寸圆屏「眼睛」原型模拟器（Tkinter，纯 Python
 按键
 ----
   轻敲：  F           （也可以用 ← 方向键 / 空格）
-  重击：  J           （也可以用 → 方向键 / 回车）
+  重击：  K           （也可以用 → 方向键 / 回车）
+                     注意：**不是 J**，J 要留给 9 宫格中间那一格
   9 宫格：T Y U / G H J / B N M   （左边一列=左，右边一列=右，上中下三行对应高低）
   上滑彩蛋：1 秒内先按 B/N/M，再按 G/H/J，再按 T/Y/U
+                     手痒想直接看：按 X
 
   被摸摸：鼠标在画面上按一下      → 弯眼笑；按住 Shift 点 = 害羞（脸红 + 视线躲开）
   跟着看：鼠标在画面上移动        → 眼睛跟着鼠标转
@@ -41,9 +43,17 @@ from eyes_render import TkRenderer
 # 默认键位
 # ---------------------------------------------------------------------------
 
+# 轻敲 / 重击。
+#
+# 注意：重击**不能用 J** —— J 是 9 宫格的中间格，而 on_press 里重击分支
+# 排在宫格分支前面，J 会被重击吃掉，于是 B→J→T 这种上滑永远触发不了。
+# 改用 K（紧挨着 J，手感一样）。
 LIGHT_KEYS = {"f", "space", "Left"}
-HEAVY_KEYS = {"j", "Return", "Right"}
+HEAVY_KEYS = {"k", "Return", "Right"}
 GRID_KEYS = set("tyughjbnm")
+
+#: 手痒想直接看星星眼时用（调试/演示）
+HYPE_KEYS = {"x"}
 
 
 class EyeSimApp:
@@ -123,6 +133,9 @@ class EyeSimApp:
         if key in LIGHT_KEYS and key not in GRID_KEYS:
             self.sm.tap(ec.LIGHT)
             self._flash("轻敲 LIGHT")
+        elif key in HYPE_KEYS:
+            self.sm.trigger_hype()
+            self._flash("★ 上滑彩蛋（直接触发）")
         elif key in HEAVY_KEYS:
             self.sm.tap(ec.HEAVY)
             self._flash("重击 HEAVY")

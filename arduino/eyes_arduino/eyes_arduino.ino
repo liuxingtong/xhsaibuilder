@@ -62,24 +62,23 @@ struct EyeDesign {
   uint16_t lid;
   // 形态参数：这才是几套设计"长得不一样"的原因，不是色相
   float    irisRatio;    // 虹膜 / 眼白
-  float    pupilRatio;   // 瞳孔 / **虹膜**（注意不是眼白！）
+  float    pupilRatio;   // 瞳孔 / **虹膜**（不是眼白！）
   float    sx, sy;       // 眼型：椭圆长短轴系数
-  uint8_t  hiStyle;      // 0=classic 1=above 2=triple 3=none
+  uint8_t  hiStyle;      // 0=classic 1=above 2=triple 3=none 4=quad 5=ring
+  uint8_t  irisPattern;  // 0=solid 1=radial 2=starfield 3=marble
 };
 
 // 数值全部由 eyes_core.EYE_DESIGNS 用 rgb565() 算出来的，别手改。
-// classic 暖金    round   iris .74 pupil .50 classic
-static const EyeDesign D_CLASSIC = { 0x1905, 0xFFDD, 0xCBC3, 0x79E2, 0x2923, 0.74f, 0.50f, 1.00f, 1.00f, 0 };
-// mint 青碧       round   iris .80 pupil .40 none
-static const EyeDesign D_MINT    = { 0x1125, 0xEFDF, 0x24B3, 0x0A09, 0x1945, 0.80f, 0.40f, 1.00f, 1.00f, 3 };
-// rose 樱粉       wide    iris .70 pupil .56 triple
-static const EyeDesign D_ROSE    = { 0x28E4, 0xFFBE, 0xD30E, 0x6947, 0x3105, 0.70f, 0.56f, 1.12f, 0.90f, 2 };
-// frost 霜蓝      almond  iris .74 pupil .46 classic
-static const EyeDesign D_FROST   = { 0x10E6, 0xF7DF, 0x44BD, 0x118C, 0x1906, 0.74f, 0.46f, 1.10f, 0.86f, 0 };
-// indigo 靛紫     tall    iris .76 pupil .52 triple
-static const EyeDesign D_INDIGO  = { 0x18C5, 0xF7BF, 0x6B18, 0x18A7, 0x20E6, 0.76f, 0.52f, 0.86f, 1.16f, 2 };
-// ember 暗金      tall    iris .82 pupil .36 above
-static const EyeDesign D_EMBER   = { 0x2902, 0xFFBC, 0xB3A3, 0x5162, 0x20E2, 0.82f, 0.36f, 0.86f, 1.16f, 1 };
+static const EyeDesign D_CLASSIC = { 0x1905, 0xFFDD, 0xCBC3, 0x79E2, 0x2923, 0.74f, 0.50f, 1.00f, 1.00f, 0, 0 };
+static const EyeDesign D_MINT    = { 0x1125, 0xEFDF, 0x24B3, 0x0A09, 0x1945, 0.80f, 0.40f, 1.00f, 1.00f, 3, 1 };
+static const EyeDesign D_ROSE    = { 0x28E4, 0xFFBE, 0xD30E, 0x6947, 0x3105, 0.70f, 0.56f, 1.12f, 0.90f, 2, 0 };
+static const EyeDesign D_FROST   = { 0x10E6, 0xF7DF, 0x44BD, 0x118C, 0x1906, 0.74f, 0.46f, 1.10f, 0.86f, 0, 0 };
+static const EyeDesign D_INDIGO  = { 0x18C5, 0xF7BF, 0x6B18, 0x18A7, 0x20E6, 0.76f, 0.52f, 0.86f, 1.16f, 2, 0 };
+static const EyeDesign D_EMBER   = { 0x2902, 0xFFBC, 0xB3A3, 0x5162, 0x20E2, 0.82f, 0.36f, 0.86f, 1.16f, 1, 0 };
+static const EyeDesign D_OTONOTO = { 0x28C3, 0xFFBE, 0xC267, 0x6103, 0x30E3, 0.78f, 0.58f, 1.00f, 1.00f, 0, 0 };
+static const EyeDesign D_HOSHI   = { 0x18C6, 0xF7BF, 0x4AB5, 0x1086, 0x18E6, 0.78f, 0.46f, 1.00f, 1.00f, 4, 2 };
+static const EyeDesign D_RONRON  = { 0x10E3, 0xF7DE, 0x3B0A, 0x08A2, 0x1903, 0.84f, 0.42f, 1.12f, 0.90f, 5, 3 };
+static const EyeDesign D_KUKU    = { 0x2902, 0xFFDD, 0xD4A4, 0x4161, 0x2902, 0.70f, 0.34f, 1.10f, 0.86f, 1, 0 };
 
 //: 当前生效的设计（后面由当前位置 / 表情改写）
 static EyeDesign gDesign = D_CLASSIC;
@@ -515,6 +514,34 @@ void drawEyes() {
     // 4) 虹膜内圈（浅）
     spr.fillEllipse(ix - (int)(irx * 0.90f), iy - (int)(iry * 0.90f),
                     (int)(irx * 1.80f), (int)(iry * 1.80f), gDesign.irisInner);
+    // 4.5) 虹膜纹理（和 Python 的 _draw_iris_pattern 对应）
+    if (gDesign.irisPattern == 1) {          // radial：两道中间环
+      uint16_t c1 = mix565(gDesign.irisOuter, gDesign.irisInner, 0.30f);
+      spr.fillEllipse(ix - (int)(irx * 0.955f), iy - (int)(iry * 0.955f),
+                      (int)(irx * 1.91f), (int)(iry * 1.91f), c1);
+      uint16_t c2 = mix565(gDesign.irisOuter, gDesign.irisInner, 0.55f);
+      spr.fillEllipse(ix - (int)(irx * 0.905f), iy - (int)(iry * 0.905f),
+                      (int)(irx * 1.81f), (int)(iry * 1.81f), c2);
+    } else if (gDesign.irisPattern == 2) {   // starfield：虹膜环上一圈星点
+      for (int i = 0; i < 13; i++) {
+        float a = i * 2.399963f;
+        float rr = 0.84f + 0.11f * ((i * 7) % 5) / 4.0f;
+        int dx = (int)(cosf(a) * irx * rr);
+        int dy = (int)(sinf(a) * iry * rr);
+        int r  = max(1, (int)(irx * (0.048f + 0.016f * (i % 3))));
+        uint16_t c = mix565(C_GLINT, gDesign.irisOuter, 0.18f + 0.10f * (i % 3));
+        spr.fillCircle(ix + dx, iy + dy, r, c);
+      }
+    } else if (gDesign.irisPattern == 3) {   // marble：两片偏心亮斑
+      uint16_t c = mix565(gDesign.irisInner, gDesign.irisOuter, 0.58f);
+      spr.fillEllipse(ix - (int)(irx * 0.18f) - (int)(irx * 0.34f),
+                      iy - (int)(iry * 0.30f) - (int)(iry * 0.21f),
+                      (int)(irx * 0.68f), (int)(iry * 0.42f), c);
+      spr.fillEllipse(ix + (int)(irx * 0.24f) - (int)(irx * 0.26f),
+                      iy + (int)(iry * 0.20f) - (int)(iry * 0.16f),
+                      (int)(irx * 0.52f), (int)(iry * 0.32f), c);
+    }
+
     // 5) 虹膜内亮环
     uint16_t rim = mix565(gDesign.irisInner, gDesign.irisOuter, 0.62f);
     spr.fillEllipse(px_ - (int)(prx * 1.18f), py_ - (int)(pry * 1.18f),
@@ -535,6 +562,18 @@ void drawEyes() {
                      max(1, (int)(prx * 0.13f)), C_GLINT);
       spr.fillCircle(px_ - (int)(prx * 0.10f), py_ + (int)(pry * 0.55f),
                      max(1, (int)(prx * 0.11f)), C_GLINT);
+    } else if (gDesign.hiStyle == 4) {       // quad：四个不等大的闪点
+      const float qf[4][3] = {{0.00f, -0.56f, 0.22f}, {0.50f, -0.10f, 0.15f},
+                              {0.10f,  0.56f, 0.13f}, {-0.44f, -0.02f, 0.11f}};
+      for (int i = 0; i < 4; i++) {
+        spr.fillCircle(px_ + (int)(prx * qf[i][0]), py_ + (int)(pry * qf[i][1]),
+                       max(1, (int)(prx * qf[i][2])), C_GLINT);
+      }
+    } else if (gDesign.hiStyle == 5) {       // ring：顶部一道柔和窗光
+      uint16_t c = mix565(C_GLINT, gDesign.irisOuter, 0.40f);
+      spr.drawArc(px_ - (int)(prx * 1.55f), py_ - (int)(pry * 1.55f),
+                  (int)(prx * 3.10f), (int)(pry * 3.10f),
+                  215, 325, c, gDesign.irisInner, 2);
     } else if (gDesign.hiStyle == 3) {       // none：只留一点眼角反光
       spr.fillCircle(px_ - (int)(prx * 0.42f), py_ - (int)(pry * 0.44f),
                      max(1, (int)(prx * 0.10f)),

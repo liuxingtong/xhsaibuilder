@@ -306,6 +306,8 @@ class EyeDesign:
     spark: Tuple[int, int, int] = (255, 226, 120)
     tint: Tuple[int, int, int] = (255, 200, 150)
     sclera: str = "round"
+    #: 虹膜纹理：solid 纯色 / radial 渐变环 / starfield 星点 / marble 云纹
+    iris_pattern: str = "solid"
     iris_ratio: float = 0.80
     pupil_ratio: float = 0.50
     hi_style: str = "classic"
@@ -427,7 +429,7 @@ _REG_MINT = _reg(EyeDesign(
     pupil=(8, 14, 18), lid=(28, 40, 44),
     sheen=(236, 255, 252), needle=(200, 240, 236),
     spark=(150, 240, 220), tint=(140, 226, 220),
-    sclera="round", iris_ratio=0.8, pupil_ratio=0.40, hi_style="none",
+    sclera="round", iris_pattern="radial", iris_ratio=0.8, pupil_ratio=0.40, hi_style="none",
     marquee=0.30,
 ))
 
@@ -477,6 +479,56 @@ _REG_EMBER = _reg(EyeDesign(
     spark=(255, 208, 132), tint=(255, 186, 118),
     sclera="tall", iris_ratio=0.82, pupil_ratio=0.36, hi_style="above",
     marquee=0.26,
+))
+
+#: おとおと：大瞳孔 + 圆眼 → 最"无辜"。LOVOT 里弟弟那套。
+_REG_OTONOTO = _reg(EyeDesign(
+    key="otonoto", name="朱红 · おとおと",
+    glow=(42, 26, 26), eye_white=(254, 246, 244),
+    iris_outer=(196, 78, 58), iris_inner=(96, 32, 26),
+    pupil=(16, 8, 8), lid=(50, 30, 28),
+    sheen=(255, 255, 255), needle=(255, 220, 205),
+    spark=(255, 176, 140), tint=(255, 156, 128),
+    sclera="round", iris_ratio=0.78, pupil_ratio=0.58, hi_style="classic",
+    marquee=0.12,
+))
+
+#: ほしぼし：虹膜里撒一圈星点。对应 LOVOT 的星空眼。
+_REG_HOSHI = _reg(EyeDesign(
+    key="hoshi", name="星空 · ほしぼし",
+    glow=(24, 24, 48), eye_white=(246, 246, 255),
+    iris_outer=(72, 84, 168), iris_inner=(18, 18, 52),
+    pupil=(8, 8, 16), lid=(28, 28, 52),
+    sheen=(255, 255, 255), needle=(220, 226, 255),
+    spark=(180, 200, 255), tint=(150, 176, 255),
+    sclera="round", iris_pattern="starfield",
+    iris_ratio=0.78, pupil_ratio=0.46, hi_style="quad",
+    marquee=0.24,
+))
+
+#: ロンロン：没有主高光，靠云纹和下缘月光发光。
+_REG_RONRON = _reg(EyeDesign(
+    key="ronron", name="墨玉 · ロンロン",
+    glow=(22, 28, 26), eye_white=(240, 248, 244),
+    iris_outer=(56, 96, 84), iris_inner=(10, 20, 18),
+    pupil=(6, 8, 8), lid=(24, 34, 30),
+    sheen=(226, 244, 236), needle=(190, 230, 214),
+    spark=(140, 230, 200), tint=(128, 216, 190),
+    sclera="wide", iris_pattern="marble",
+    iris_ratio=0.84, pupil_ratio=0.42, hi_style="ring",
+    marquee=0.30,
+))
+
+#: キュキュ：杏仁眼 + 小瞳孔 + 顶光 → 猫。LOVOT 里「キュキュ」那套。
+_REG_KUKU = _reg(EyeDesign(
+    key="kuku", name="琥珀 · キュキュ",
+    glow=(40, 32, 22), eye_white=(254, 248, 236),
+    iris_outer=(214, 150, 38), iris_inner=(70, 44, 12),
+    pupil=(8, 8, 8), lid=(42, 32, 20),
+    sheen=(255, 252, 240), needle=(255, 230, 180),
+    spark=(255, 214, 120), tint=(255, 190, 110),
+    sclera="almond", iris_ratio=0.70, pupil_ratio=0.34, hi_style="above",
+    marquee=0.18,
 ))
 
 DEFAULT_DESIGN = "classic"
@@ -1175,6 +1227,9 @@ class EyeStateMachine:
         # 4) 虹膜内圈（浅）：外深内浅 = 中心亮，人眼就是这么有纵深的
         dl.add(Ellipse(ix, iy, irx * 0.90, iry * 0.90, mood=col(d.iris_inner)))
 
+        # 4.5) 虹膜纹理。四种，都是在虹膜环上再叠几层 —— 便宜且 Arduino 能画。
+        self._draw_iris_pattern(dl, ix, iy, irx, iry, prx, pry, d, inner_rot)
+
         # 5) 虹膜内亮环：贴着瞳孔外缘的一圈亮边，像光透过角膜
         rim = mix_rgb(d.iris_inner, d.iris_outer, 0.62)
         dl.add(Ellipse(px_, py_, prx * 1.18, pry * 1.18, mood=col(rim)))
@@ -1200,6 +1255,45 @@ class EyeStateMachine:
         # 10) 眼皮：压扁时盖在最上面
         if squash > 0.03:
             _draw_lid(dl, cx, cy, srx, sry, squash, d)
+
+    def _draw_iris_pattern(self, dl: DrawList, ix: float, iy: float,
+                           irx: float, iry: float, prx: float, pry: float,
+                           d: EyeDesign, rot: float) -> None:
+        """
+        虹膜纹理。四种：
+
+          solid     不画（纯渐变，最干净）
+          radial    再叠两圈同心环，把"外深内浅"的过渡做细 → 有纵深
+          starfield 虹膜环上撒一圈小亮点 → 对应 LOVOT 的「ほしぼし」星空眼
+          marble    两个偏心椭圆叠出云纹 → 对应「ロンロン」那种带花纹的黑目
+        """
+        if d.iris_pattern == "radial":
+            # 两道中间环，让 0.90 到 1.00 之间的渐变不那么"硬"
+            for k, t in ((0.955, 0.30), (0.905, 0.55)):
+                c = mix_rgb(d.iris_outer, d.iris_inner, t)
+                dl.add(Ellipse(ix, iy, irx * k, iry * k, mood=rgb_key(c)))
+
+        elif d.iris_pattern == "starfield":
+            # 固定的 10 个点，长度按黄金角散开，避免规则排列
+            n = 13
+            for i in range(n):
+                a = i * 2.399963 + rot * 0.15
+                rr = 0.84 + 0.11 * ((i * 7) % 5) / 4.0
+                dx = math.cos(a) * irx * rr
+                dy = math.sin(a) * iry * rr
+                r = max(0.005, irx * (0.048 + 0.016 * (i % 3)))
+                c = mix_rgb(d.sheen, d.iris_outer, 0.18 + 0.10 * (i % 3))
+                dl.add(Ellipse(ix + dx, iy + dy, r, r, mood=rgb_key(c)))
+
+        elif d.iris_pattern == "marble":
+            # 两片偏心椭圆，颜色比虹膜亮一档 → 读起来像云纹/大理石
+            for k, (ox, oy, sc) in enumerate((
+                (-0.18, -0.30, 0.34),
+                (0.24, 0.20, 0.26),
+            )):
+                c = mix_rgb(d.iris_inner, d.iris_outer, 0.58)
+                dl.add(Ellipse(ix + irx * ox, iy + iry * oy,
+                               irx * sc, iry * sc * 0.62, mood=rgb_key(c)))
 
     def _draw_highlights(self, dl: DrawList, px_: float, py_: float,
                          prx: float, pry: float, d: EyeDesign,
@@ -1232,6 +1326,23 @@ class EyeStateMachine:
             )):
                 r = prx * fr * (1.0 + 0.08 * math.sin(inner_rot * 2.0 + i))
                 dl.add(Ellipse(hx + prx * fx, hy + pry * fy, r, r, mood=col(s)))
+
+        elif d.hi_style == "quad":
+            # 四个小闪点，上下左右偏一点 —— 最"晶亮"，适合星空/水感
+            for i, (fx, fy, fr) in enumerate((
+                (0.00, -0.56, 0.22),
+                (0.50, -0.10, 0.15),
+                (0.10, 0.56, 0.13),
+                (-0.44, -0.02, 0.11),
+            )):
+                r = prx * fr
+                dl.add(Ellipse(hx + prx * fx, hy + pry * fy, r, r, mood=col(s)))
+
+        elif d.hi_style == "ring":
+            # 顶部一道柔和窗光（是"面"，不是"点"）。
+            # 圆环状高光看着像单片眼镜，不自然 —— 真实眼球上的反光是弧形。
+            dl.add(("arc", hx, hy, prx * 1.55, pry * 1.55, 215.0, 325.0,
+                    col(mix_rgb(s, d.iris_outer, 0.40)), 0.018))
 
         elif d.hi_style == "none":
             # 没有主光：只留一点点眼角反光，避免整只眼"死黑"
@@ -1536,10 +1647,12 @@ def _profile(name: str) -> List[Tuple[float, float]]:
 
 #: 眼型 → (横向系数, 竖向系数)。只改椭圆长短轴，便宜、Arduino 好移植。
 SCLERA_DIMS = {
-    "round":  (1.00, 1.00),
-    "tall":   (0.86, 1.16),
-    "wide":   (1.12, 0.90),
-    "almond": (1.10, 0.86),
+    "round":    (1.00, 1.00),
+    "tall":     (0.86, 1.16),   # 竖长：成熟、聪明
+    "wide":     (1.12, 0.90),   # 扁圆：可爱
+    "almond":   (1.10, 0.86),   # 杏仁：机敏
+    "teardrop": (1.00, 1.10),   # 水滴：温柔
+    "half":     (1.10, 0.72),   # 半闭：困、慵懒
 }
 
 
