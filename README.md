@@ -1,148 +1,167 @@
-# 圆屏「眼睛」交互原型
+# Duetto — 桌面听歌搭子（表情原型）
 
-1.24 寸圆屏（240×240）小机器人表情原型。硬件还没到位，先用电脑键盘驱动一个 Python 窗口模拟圆屏，把交互手感调好，再转 Arduino。
+把听歌时的敲击与手势，变成桌面上一个有反应的活物。
+
+硬件还没打样，先用 Python 把交互和形象调好，代码按"可直译成 Arduino"的方式组织。
 
 **全程纯代码绘制，不加载任何图片。**
 
 ---
 
-## 快速开始
+## 两个版本
 
-```bash
-python3 eyes_sim.py
-```
+| 版本 | 命令 | 说明 |
+|---|---|---|
+| **小猫头鹰**（形象版） | `python3 duetto_sim.py` | 带外圈灯带，模拟双人视界 |
+| 抽象眼睛（几何版） | `python3 eyes_sim.py` | 最早的原型，纯眼睛 |
 
-需要 Python 3.8+ 和 Tkinter（macOS 自带；Linux 装 `python3-tk`）。
-
-```bash
-python3 eyes_sim.py --size 128    # 模拟 128×128 的小圆屏
-python3 eyes_sim.py --scale 3     # 窗口放大 3 倍，方便看细节
-```
+两个版本共用同一套动画状态机 `eyes_core.py`，只是渲染层不同。
 
 ## 按键
 
-| 交互 | 按键 | 说明 |
+| 交互 | 按键 | 猫头鹰的反应 |
 |---|---|---|
-| 轻敲 | `F` / `Space` / `←` | 快速点头：整体下沉一点 + 眯眼 + 小回弹 |
-| 重击 | `J` / `Enter` / `→` | 更嗨：沉得更深更久、晃一下头、瞳孔放大、回弹更高 |
-| 9 宫格 | `T Y U` / `G H J` / `B N M` | 手指位置 → 眼睛的位置和形状跟着变 |
-| 上滑彩蛋 | 1 秒内 `B/N/M` → `G/H/J` → `T/Y/U` | 触发「特别嗨」表情（星星 + 眼睛放大） |
+| 轻敲 | `F` / `Space` / `←` | 眯眼点头，眉羽微扬 |
+| 重击 | `J` / `Enter` / `→` | 沉得更低、眉羽压低、眼睛瞪大 |
+| 9 宫格 | `T Y U` / `G H J` / `B N M` | **整只鸟转头**（不是转眼）+ 平移 |
+| 上滑彩蛋 | 1 秒内 `B/N/M` → `G/H/J` → `T/Y/U` | 笑眼、张嘴、星星爆发 |
 | 退出 | `Esc` | |
-
-9 宫格松开任意键后眼睛回到中间。
 
 ---
 
-## 三种交互的设计
+## 形象设计：为什么是猫头鹰，眼睛怎么画
 
-### ① 敲击 → 点头
+设计前先做了竞品调研，完整报告在 [`docs/duetto-eye-design-research.md`](docs/duetto-eye-design-research.md)。几条直接改变了设计的结论：
 
-轻敲和重击是**同一条曲线、不同参数**，所以手感统一但强弱分明：
+### 1. 不画「眼白 + 瞳孔」，画实心发光块
 
-| | 时长 | 下沉 | 压扁 | 回弹 | 额外 |
-|---|---|---|---|---|---|
-| 轻敲 | 0.38s | 0.26 | 46% | 42% | 瞳孔微放大 |
-| 重击 | 0.80s | 0.40 | 56% | 75% | 左右晃头 + 瞳孔放大到 1.6× |
+Cozmo 和 Vector 都是单色填充形状，Anki 直接把 Eve 的眼睛搬过来。**小屏上画眼白会立刻显脏、显小**。所以猫头鹰的眼睛是两块实心琥珀色，没有眼白、没有瞳圈、没有高光点。
 
-曲线是「快速下沉 → 回弹过冲到上方 → 落回」，三段时间用不同的缓动函数拼起来，所以看起来像真的点了一下头，而不是机械地上下平移。
+### 2. 猫头鹰的眼睛不能转，所以滑动是「转头」
 
-连续快速敲轻敲会累积力度（最多 +35%），连击会越敲越嗨。
+真实猫头鹰的眼球固定在眼窝里，只能转头。这反而帮了忙——**舵机有了存在理由**：
 
-### ② 9 宫格 → 平滑移动
+- 左右滑动 → `head_x` 平移 + `head_tilt` 旋转（整张脸一起动）
+- 屏幕上不画瞳孔位移，眼睛本身不动
 
-- **位置**：两眼中心整体平移（`EYE_PAN_X`），行位置控制上下（`ROW_SHIFT`）。
-- **平滑**：用临界阻尼弹簧跟随目标位置，不是线性插值——所以移动有加速和自然减速，不会像机器人一样匀速平移。
-- **形状变化**：
-  - 左右 → 眼睛横向拉伸 + 上眼皮往一侧斜（`tilt`），靠近移动方向的那只眼睛略微放大（近大远小）。
-  - 上排 → 眼睛睁大；下排 → 眼睛微眯。
-  - 瞳孔跟着偏移，制造「看向那个方向」的感觉。
+### 3. 一次只动一条边
 
-> 如果想只要左中右三个键，把 `eyes_core.py` 里 `KEY_GRID` 的 `row` 全部改成 `0` 即可，其余不用动。
+`eye_shape()` 里三个独立通道，不同时变形：
 
-### ③ 上滑彩蛋
+| 通道 | 效果 | 用于 |
+|---|---|---|
+| `eye_open` | 上缘高度 | 眯眼 / 瞪大 / 眨眼 |
+| `smile` | 上缘中段上凸 | 笑眼 |
+| `angry` | 上缘整体倾斜 | 专注 / 生气 |
 
-`SwipeDetector` 在 1 秒窗口内维护按键历史，扫描是否出现 `下排 → 中排 → 上排`（行号 1 → 0 → -1）。
+### 4. 猫头鹰靠三样东西立住
 
-- 整段跨度 ≤ 1.0s
-- 相邻两段间隔 ≤ 0.55s
-- 触发后：眼睛放大 26%~38%、轻微上下跳动、四周爆发彩色星星，持续 2.6s
+- **面盘**：带心形凹口的浅色区域，最标志性
+- **眉羽**：3 根由粗到细的羽片叠出层次。用一条实心线会读成人类的眉毛
+- **喙**：倒三角，把两只眼睛连成一张脸
 
-判定是在按键序列上扫的，所以**中间多按几下同排的键也不会打断**（符合手指滑过去时的真实情况）。
+眼距约 1.3 倍眼宽（调研建议 0.6–0.8 倍间隙），比人的眼睛更宽更靠上。
+
+### 5. 配色
+
+| 用途 | 值 |
+|---|---|
+| 屏幕底 | `#14100C` 暖褐黑 |
+| 眼睛 | `#FFD98A` 琥珀 |
+| 眉羽 | `#6C543E` |
+| 喙 | `#E29646` |
+| 灯带（我） | `#FFB86B` 暖 |
+| 灯带（对方） | `#6FD3FF` 冷 |
+
+---
+
+## 双人视界（核心差异点）
+
+调研里**没有在竞品中发现同类做法**：灯带左右各 12 颗独立寻址，左边是「我」，右边是「对方」。
+
+| 状态 | 灯带 |
+|---|---|
+| 待机 | 左右同色暖白（当作"面盘"） |
+| 看向左侧 | 左暖亮 + 右冷暗 |
+| 看向右侧 | 左冷暗 + 右暖亮 |
+| 彩蛋 | 左右融为一体（暖黄高亮） |
+
+`duetto_states.light_for()` 算颜色。屏幕和灯带是**两条独立通道**，表情不等灯带和舵机到位——这是 Disney 研究里 "show channel" 的思路。
 
 ---
 
 ## 文件结构
 
 ```
-eyes_core.py       动画状态机（纯标准库，无绘图依赖）← 移植到 Arduino 时主要对照这个
-eyes_render.py     绘制指令 → Tkinter / Pillow 两种渲染后端
-eyes_sim.py        Tkinter 模拟器（键盘输入 + 窗口）
-render_frames.py   无头预览，导出 GIF / 拼图（不需要窗口）
-preview/           生成的预览图
-arduino/eyes_arduino/eyes_arduino.ino   Arduino 移植版
+eyes_core.py            动画状态机（纯标准库，无绘图依赖）
+eyes_render.py          几何版渲染（Tkinter / Pillow）
+eyes_sim.py             几何版模拟器
+
+duetto_owl.py           猫头鹰形象（几何 + 配色）
+duetto_render.py        猫头鹰渲染（Tkinter / Pillow）
+duetto_states.py        状态机 → 猫头鹰参数 + 灯带颜色
+duetto_sim.py           猫头鹰模拟器（带灯带）
+
+render_frames.py        无头预览，导出 GIF / 拼图
+docs/                   竞品调研报告
+arduino/duetto_owl/     猫头鹰 Arduino 版
+arduino/eyes_arduino/   几何版 Arduino 版
 ```
 
-### 为什么拆三层
+三层架构，目的是让动画逻辑能原样搬到 Arduino：
 
 ```
 输入（键盘 / 按钮 / 触摸焊盘）
    ↓
-eyes_core.EyeStateMachine   ← 只有浮点数，update(dt) + build_frame()
-   ↓  DrawList（Ellipse / Polygon / 弧 / spark，坐标 -1..1）
-eyes_render.TkRenderer  |  PillowRenderer  |  Arduino GFX
+eyes_core.EyeStateMachine     只有浮点数，update(dt) + build_frame()
+   ↓  duetto_states  ← 适配层（几何版跳过这一层）
+duetto_owl.OwlParams          一帧的形象参数
+   ↓
+duetto_render                  Tkinter | Pillow | Arduino GFX
 ```
 
-`eyes_core.py` 里**一个绘图库都不 import**，时间也是外部 `update(dt)` 喂进来的。所以同一份状态机可以原样跑在 Python 和 C++ 上，移植时只重写绘制层。
-
-坐标全部归一化到 **-1..1**（原点屏幕中心，y 向下，半径 1 = 屏幕半径），换 128 / 240 / 454 分辨率只改一个 `SCREEN` 常量。
+坐标全部归一化到 **-1..1**（原点居中、半径 1 = 屏幕半径），换分辨率只改 `SCREEN`。
 
 ---
 
 ## 无头预览（不开窗口看效果）
 
 ```bash
-python3 render_frames.py            # 生成 preview/*.gif
-python3 render_frames.py --sheet    # 额外生成关键帧拼图
+python3 render_frames.py            # 几何版 GIF
+python3 preview_all.py              # 猫头鹰版 GIF + 对照图
 ```
 
-依赖 Pillow。适合在没有显示器的环境（比如容器、CI、或者想直接发图给人看）验证动画。
+依赖 Pillow。适合没有显示器的环境，或者想直接发图给人看。
 
 ---
 
-## 转到 Arduino
+## Arduino
 
-见 [`arduino/eyes_arduino/eyes_arduino.ino`](arduino/eyes_arduino/eyes_arduino.ino)，逻辑和参数与 Python 版逐行对应，文件末尾有一张对照表。
+已装好：
+
+- **Arduino IDE 2.2.0** — `/Applications/Arduino IDE.app`
+- **arduino-cli 1.6.0** — `~/bin/arduino-cli`（可命令行编译验证）
+
+代码在 [`arduino/duetto_owl/duetto_owl.ino`](arduino/duetto_owl/duetto_owl.ino)，逻辑与 Python 版逐行对应，文件末尾有对照表。
 
 硬件建议：
 
-- **屏幕**：GC9A01 驱动、240×240 圆形 IPS，SPI 接口
-- **主控**：ESP32 / ESP32-S3 / RP2040（UNO 跑 240×240 全屏刷新会偏慢）
-- **输入**：
-  - 敲击 → 压电片（piezo）读模拟值，超过阈值判重击，否则轻敲
-  - 9 宫格 → 9 个电容触摸焊盘，或 9 个薄膜按键
+- **屏幕**：GC9A01 240×240 圆形 IPS
+- **主控**：ESP32-S3（RP2040 也能跑，但更慢）
+- **灯带**：WS2812B × 24（左右各 12）
+- **舵机**：SG90 / MG90S，左右摆头
 
-移植时注意三点：
-
-1. **时间**：Python 版外部喂 `dt`，Arduino 用 `millis()` 差值算
-2. **坐标**：`px(v)` / `pr(v)` 两个辅助函数把 -1..1 转像素
-3. **性能**：240×240 全屏 `pushSprite` 在 ESP32 上约 8~12ms。如果不够快，改成只刷「眼睛外接矩形」的脏矩形，或换 128×128 圆屏
+> ⚠️ **帧率是硬约束**：Adafruit 用同一块 GC9A01A 实测，ESP32-S3 画**双眼只有约 20 FPS**（单眼 39 FPS）。所以代码按 20 FPS 设计，单次动作控制在 8 帧内。提速建议见 .ino 文件末尾。
 
 ---
 
 ## 调参速查
 
-全在 `eyes_core.py` 顶部，改完直接跑 `render_frames.py` 就能看到区别：
-
-| 常量 | 作用 |
+| 位置 | 作用 |
 |---|---|
-| `SCREEN` | 分辨率 |
-| `LIGHT_TAP` / `HEAVY_TAP` | 敲击的时长、下沉、压扁、回弹、瞳孔缩放 |
-| `COLUMN_STYLE` | 左/中/右三列的形状个性（拉伸、倾斜、睁眼度） |
-| `ROW_STYLE` | 上/中/下三行的睁眼度 |
-| `ROW_SHIFT` | 上下移动幅度 |
-| `EYE_PAN_X` | 左右平移幅度 |
-| `SwipeDetector.window` / `.max_gap` | 上滑判定的时间阈值 |
-| `EyeStateMachine.hype_len` | 彩蛋持续时间 |
-| 弹簧的 `stiffness` / `damping` | 「平滑过去」的快慢和弹性 |
-
-> `EYE_PAN_X` 超过约 0.15 之后幅度会开始显得夸张，`0.30` 是当前值——这是刻意的，因为圆屏很小，位置差异需要大一点才看得出来。实际硬件上可以调回 0.15~0.20。
+| `eyes_core.py` 的 `LIGHT_TAP` / `HEAVY_TAP` | 敲击的时长、下沉、压扁、回弹 |
+| `eyes_core.py` 的 `SwipeDetector.window` | 上滑判定时间窗口 |
+| `duetto_owl.py` 的 `OwlParams` | 眼睛大小、眼距、眉羽 |
+| `duetto_owl.py` 的 `eye_shape()` | 眼睛的形变规则 |
+| `duetto_states.py` 的 `state_to_owl()` | 状态机 → 表情的映射强度 |
+| `duetto_states.py` 的 `light_for()` | 灯带颜色逻辑 |
