@@ -218,31 +218,28 @@ def _check_tk() -> None:
     """
     macOS 上系统自带的 Tk 8.5.9 画不出 Canvas —— 窗口会是一片空白。
 
-    这是 Apple 内置 Python 的已知问题（Tk 8.5 在老系统上的绘制路径已经坏了），
-    和我们自己的绘制代码无关。表现很迷惑：Canvas 里的图元数据全都对，
-    find_all() 能列出来、颜色也对，但屏幕上就是什么都不显示。
+    注意：**这里绝对不能创建 Tk() 再 destroy() 去取版本号。**
+    那样做之后再开真正的窗口会直接段错误（exit 139）——
+    Tk 进程级状态被 destroy 弄坏了，第二个窗口就建不起来。
+    这个坑很隐蔽：单独跑版本探测没事，放在 main() 里就必崩。
 
-    所以这里直接挡掉，让人一眼知道该换解释器，而不是去怀疑动画代码。
+    所以只读常量 / 环境变量，完全不碰 Tk 运行时。
     """
     try:
-        import tkinter as tk
-        probe = tk.Tk()
-        patch = probe.tk.call("info", "patchlevel")
-        probe.destroy()
+        import tkinter
     except Exception:
-        return   # 拿不到版本就算了，不拦
-
+        return
+    ver = getattr(tkinter, "TkVersion", None)
     try:
-        major = int(str(patch).split(".")[0])
-    except ValueError:
+        major = int(float(ver))
+    except (TypeError, ValueError):
         return
     if major < 9:
         sys.stderr.write(
-            f"\n  ⚠️  当前 Tk 版本是 {patch}，在 macOS 上可能画不出画面（窗口一片空白）。\n"
+            f"\n  ⚠️  当前 Tk 版本是 {ver}，在 macOS 上可能画不出画面（窗口一片空白）。\n"
             f"     这不是动画代码的问题 —— Canvas 里的图元都是对的，只是 Tk 8.5 不渲染。\n\n"
             f"     用 Tk 9 的 Python 跑就行：\n"
-            f"       ~/.local/bin/python3.12 eyes_sim.py --showcase\n\n"
-            f"     如果一定要用现在的解释器，就先装一个带新 Tk 的 Python。\n\n"
+            f"       ./.venv/bin/python eyes_sim.py --showcase\n\n"
         )
 
 
